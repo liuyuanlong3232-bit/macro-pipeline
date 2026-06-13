@@ -106,6 +106,10 @@ def send_report(filepath, chart_type=""):
         in_table = False
         return html
 
+    # ── helper: detect markdown table separator row ──────────
+    def _is_sep(s: str) -> bool:
+        return "|" in s and not s.replace("|", "").replace("-", "").replace(":", "").strip()
+
     for i, line in enumerate(lines):
         stripped = line.strip()
 
@@ -114,64 +118,44 @@ def send_report(filepath, chart_type=""):
             continue
 
         # 检测表格行：包含|且不纯粹是分隔符
-        is_table_row = False
-
-        # 先检查是不是分隔行 (|------|------| or --- | --- | ---)
-        stripped_no_pipe = stripped.replace("|", "").replace("-", "").replace(":", "").strip()
-        if not stripped_no_pipe:
-            if "|" in stripped:
-                is_separator = True
-            else:
-                is_separator = False
-        else:
-            is_separator = False
-
-        if is_separator:
+        if _is_sep(stripped):
             continue
 
         if "|" in stripped:
-            cleaned = stripped.replace("|", "").replace("-", "").replace(":", "").strip()
-            if cleaned and len(cleaned) > 2:
-                pass  # will check cells below
             cells_raw = [c.strip() for c in stripped.split("|")]
-            real_cells = [c for c in cells_raw if c.strip() and not set(c.strip()) <= set("-: ")]
+            real_cells = [c for c in cells_raw if c.strip()]
             if len(real_cells) >= 2:
-                is_table_row = True
-
-        if is_table_row:
-            cells = [c.strip() for c in stripped.split("|")]
-            # 如果行首尾有|，去掉首尾的空单元格
-            if stripped.startswith("|") and stripped.endswith("|"):
-                cells = cells[1:-1]
-            cells = [c.strip() for c in cells if c.strip()]
-            if not cells or len(cells) < 2:
-                continue
-            # 判断是否是表头行（上一行是分隔行 or 当前行包含---）
-            is_header = False
-            if i > 0:
-                prev = lines[i-1].strip()
-                # 如果上一行是分隔行，当前行是数据行；如果上上行是分隔行，当前行是表头
-                is_sep = lambda s: set(s.replace("|", "").replace("-", "").replace(":", "").strip()) <= set(" ") and "|" in s
-                if is_sep(prev):
-                    is_header = False
-                elif i > 1 and is_sep(lines[i-2].strip()):
-                    is_header = True
-                else:
-                    # 第一张表格：第一行后通常跟着分隔行
-                    if not in_table and i+1 < len(lines) and is_sep(lines[i+1].strip()):
+                # 如果行首尾有|，去掉首尾的空单元格
+                cells = cells_raw[:]
+                if stripped.startswith("|") and stripped.endswith("|"):
+                    cells = cells[1:-1]
+                cells = [c.strip() for c in cells if c.strip()]
+                if len(cells) < 2:
+                    continue
+                # 判断是否是表头行（上一行是分隔行 or 当前行包含---）
+                is_header = False
+                if i > 0:
+                    prev = lines[i - 1].strip()
+                    if _is_sep(prev):
+                        is_header = False
+                    elif i > 1 and _is_sep(lines[i - 2].strip()):
                         is_header = True
                     else:
-                        is_header = False
-            else:
-                is_header = bool(i == 0)
+                        # 第一张表格：第一行后通常跟着分隔行
+                        if not in_table and i + 1 < len(lines) and _is_sep(lines[i + 1].strip()):
+                            is_header = True
+                        else:
+                            is_header = False
+                else:
+                    is_header = True
 
-            table_rows.append((is_header, cells))
-            in_table = True
-            continue
-        else:
-            # 非表格行：先flush暂存的表格
-            if in_table:
-                html_body += flush_table()
+                table_rows.append((is_header, cells))
+                in_table = True
+                continue
+
+        # 非表格行：先flush暂存的表格
+        if in_table:
+            html_body += flush_table()
 
         # 其他行类型
         if stripped.startswith("## "):
