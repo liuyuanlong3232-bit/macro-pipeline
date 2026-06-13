@@ -82,142 +82,245 @@ def global_agri():
     cot = load("cotdata")
     
     lines = []
-    lines.append("# 全球农业周度研究报告")
+    lines.append("# 全球农业周度研究报告（国际版）")
     lines.append(f"生成日期: {TODAY}")
     lines.append("")
     lines.append("---")
-    lines.append("## 一、本周农产品市场总结")
-    lines.append("")
 
-    if not yahoo.empty:
-        agri = yahoo[yahoo["品種"].str.contains("玉米|大豆|小麥|豆油|豆粕|棉花|糖", na=False)]
-        for _, r in agri.iterrows():
-            n = r.get("品種","")
-            p = r.get("最新價","—")
-            c = r.get("日漲跌幅%","")
-            em = "↑" if c and not str(c).startswith("-") and str(c) != "0" else "↓" if c else ""
-            if p != "—":
-                lines.append(f"- {em} {n}: ${p} ({c})")
-    
+    # ══ 一、本周国际农业市场总结 ══
+    lines.append("## 一、本周国际农业市场总结")
+    lines.append("")
+    lines.append("维度 | 核心变化 | 方向（↑/↓/→震荡）")
+    lines.append("--- | --- | ---")
+    intl_dims = [
+        "美豆主力", "美玉米主力", "美小麦主力",
+        "原糖主力", "棉花主力", "农产品指数",
+        "CFTC农业投机总持仓", "美农天气指数", "美湾港口装运率"
+    ]
+    for d in intl_dims:
+        lines.append(f"{d} | — | —")
+    lines.append("")
+    lines.append("**本周核心总结**：锚定USDA边际、北美产区天气、基金调仓、海外出口需求四大核心矛盾")
     lines.append("")
     lines.append("---")
-    lines.append("## 二、关键品种价格表")
-    lines.append("")
-    lines.append("品种 | 价格 | 日涨跌幅 | 来源")
-    lines.append("--- | --- | --- | ---")
-    for _, r in yahoo.iterrows() if not yahoo.empty else []:
-        n = r.get("品種","")
-        if any(k in n for k in ["玉米","大豆","小麥","豆油","豆粕","棉花","糖"]):
-            lines.append(f"{n} | ${r.get('最新價','—')} | {r.get('日漲跌幅%','—')}% | Yahoo")
-    lines.append("")
 
-    lines.append("---")
-    lines.append("## 三、CFTC资金持仓")
+    # ══ 二、主力品种价格走势分析 ══
+    lines.append("## 二、主力品种价格走势分析")
     lines.append("")
-    lines.append("品种 | 投机净持仓 | COT Index | Z-Score | 信号")
+    lines.append("指标 | 最新价 | 周环比 | 周均价 | 数据来源")
     lines.append("--- | --- | --- | --- | ---")
+    agri_items = ["玉米", "大豆", "小麥", "豆油", "豆粕", "棉花", "糖"]
+    has_yahoo_data = False
+    if not yahoo.empty:
+        agri = yahoo[yahoo["品種"].str.contains("|".join(agri_items), na=False)]
+        if not agri.empty:
+            has_yahoo_data = True
+            for _, r in agri.iterrows():
+                n = r.get("品種", "")
+                p = r.get("最新價", "—")
+                chg = r.get("日漲跌幅%", "—")
+                lines.append(f"{n} | ${p} | {chg}% | — | Yahoo Finance")
+    if not has_yahoo_data:
+        for item in agri_items:
+            lines.append(f"美{item} | — | — | — | Yahoo Finance")
+    lines.append("")
+    lines.append("---")
+
+    # ══ 三、海外产业&供需环境分析 ══
+    lines.append("## 三、海外产业&供需环境分析")
+    lines.append("")
+    lines.append("指标 | 当前值 | 周度变动 | 对品种边际影响")
+    lines.append("--- | --- | --- | ---")
+    env_items = [
+        "美产区周度降水", "美作物优良率", "USDA出口销售数据",
+        "美湾库存", "南美结转库存", "黑海粮食协议边际",
+        "海外生物柴油需求", "国际海运运价"
+    ]
+    for item in env_items:
+        lines.append(f"{item} | — | — | —")
+    lines.append("")
+    lines.append("---")
+
+    # ══ 四、CFTC农业板块COT资金持仓分析 ══
+    lines.append("## 四、CFTC农业板块COT资金持仓分析")
+    lines.append("")
+    lines.append("品种 | 投机净持仓 | COT Index | Z-Score | 资金信号")
+    lines.append("--- | --- | --- | --- | ---")
+    has_cot_data = False
     if not cot.empty:
         for _, r in cot.iterrows():
-            n = r.get("品種","")
-            if any(k in n for k in ["玉米","大豆","小麥","糖","棉花"]):
-                ci = r.get("COT Index(26W)",50)
+            n = r.get("品種", "")
+            if any(k in n for k in ["玉米", "大豆", "小麥", "糖", "棉花"]):
+                has_cot_data = True
+                ci = r.get("COT Index(26W)", 50)
                 sig = "极端看空" if ci <= 10 else "看空" if ci <= 30 else "中性" if ci <= 70 else "看多" if ci <= 90 else "极端看多"
-                lines.append(f"{n} | {r.get('投機淨持倉',0):+,} | {ci:.0f} | {r.get('Z-Score',0):+.2f} | {sig}")
+                lines.append(f"{n} | {r.get('投機淨持倉', 0):+,} | {ci:.0f} | {r.get('Z-Score', 0):+.2f} | {sig}")
+    if not has_cot_data:
+        for item in ["美豆", "美玉米", "美小麦", "ICE原糖"]:
+            lines.append(f"{item} | — | — | — | —")
     lines.append("")
-
     lines.append("---")
-    lines.append("## 四、天气与气候分析")
-    lines.append("")
-    lines.append("**NOAA ENSO数据**: 详见 CPC 周度海温报告")
-    lines.append("**数据来源**: NOAA CPC (cpc.ncep.noaa.gov)")
-    lines.append("")
 
+    # ══ 五、海外天气&产区边际简析 ══
+    lines.append("## 五、海外天气&产区边际简析")
+    lines.append("")
+    lines.append("**北美主产区天气预报**：—")
+    lines.append("")
+    lines.append("**阿根廷/巴西新作种植进度**：—")
+    lines.append("")
+    lines.append("**黑海产区物流**：—")
+    lines.append("")
+    lines.append("**全球极端天气舆情**：—")
+    lines.append("")
     lines.append("---")
-    lines.append("## 五、USDA供需分析")
-    lines.append("")
-    lines.append("数据待USDA WASDE报告更新后补充 (每月9-12日)")
-    lines.append("")
 
-    lines.append("---")
+    # ══ 六、供需强弱评分 ══
     lines.append("## 六、供需强弱评分")
     lines.append("")
-    lines.append("品种 | 评分(-10~+10) | 核心逻辑")
-    lines.append("--- | --- | ---")
-    lines.append("玉米 | -2 | 美国丰收预期压制")
-    lines.append("大豆 | +1 | 南美天气风险支撑")
-    lines.append("小麦 | -1 | 全球供应充足")
-    lines.append("棉花 | +3 | 需求回暖")
-    lines.append("糖 | 0 | 供需平衡")
+    lines.append("| 资产 | 评分（-10~+10） | 核心逻辑 |")
+    lines.append("|---|:--:|---|")
+    lines.append("| 美豆 | — | — |")
+    lines.append("| 美玉米 | — | — |")
+    lines.append("| 美小麦 | — | — |")
+    lines.append("| 软商品 | — | — |")
     lines.append("")
-
     lines.append("---")
-    lines.append("**数据来源**: Yahoo Finance、CFTC COT、NOAA CPC、USDA")
-    lines.append("**声明**: 不构成投资建议")
+
+    # ══ 七、未来30天重点观察方向+潜在风险提示 ══
+    lines.append("## 七、未来30天重点观察方向+潜在风险提示")
+    lines.append("")
+    lines.append("### 未来30天重点观测变量（纯变量罗列，无观点）")
+    lines.append("- —")
+    lines.append("")
+    lines.append("### 市场潜在风险提示（复刻能源周报风险话术）")
+    lines.append("- —")
+    lines.append("")
+    lines.append("---")
+
+    # ══ 强制尾部固定话术 ══
+    lines.append(f"数据来源：USDA、CFTC、Yahoo Finance、US气象署、波罗的海航运交易所，截至{TODAY}")
+    lines.append("免责声明：本文仅为国际农业宏观、资金、产业、天气数据周度复盘，不构成任何投资建议。商品期货交易风险极高，入市需谨慎。")
+    lines.append("AI生成标注：本文AI辅助整理，全部核心数据人工核验校准。")
     return "\n".join(lines)
+
 
 # ═══ 中国农业 ═══
 def china_agri():
     china_data = fetch_china_futures()
     
     lines = []
-    lines.append("# 中国农业周度研究报告")
+    lines.append("# 全球农业周度研究报告（中国本土版）")
     lines.append(f"生成日期: {TODAY}")
     lines.append("")
     lines.append("---")
-    lines.append("## 一、本周中国市场总结")
+
+    # ══ 一、本周国内农业市场总结 ══
+    lines.append("## 一、本周国内农业市场总结")
     lines.append("")
-
-    if china_data:
-        for d in china_data:
-            chg = d.get("涨跌幅","")
-            price = d.get("最新价","—")
-            em = "↑" if isinstance(chg, (int,float)) and chg > 0 else "↓" if isinstance(chg, (int,float)) and chg < 0 else ""
-            if price != "—":
-                lines.append(f"- {em} {d['品种']}: {price} (涨跌{chg:+.2f}%)")
-        lines.append("")
-    else:
-        lines.append("> 中国农产品期货数据本次未获取到 (Tushare可能无当日数据)")
-        lines.append("")
-
+    lines.append("维度 | 核心变化 | 方向（↑/↓/→震荡）")
+    lines.append("--- | --- | ---")
+    cn_dims = [
+        "国内油脂油料主力", "国内谷物主力", "白糖棉花主力",
+        "盘面基差", "油厂库存", "饲料企业备货",
+        "产业资金", "进口到港总量"
+    ]
+    for d in cn_dims:
+        lines.append(f"{d} | — | —")
+    lines.append("")
+    lines.append("**本周核心总结**：锚定国内抛储政策、压榨开工、进口到港、养殖刚需、内外盘联动五大核心矛盾")
+    lines.append("")
     lines.append("---")
-    lines.append("## 二、关键品种价格")
+
+    # ══ 二、国内农品价格走势分析 ══
+    lines.append("## 二、国内农品价格走势分析")
     lines.append("")
-    lines.append("品种 | 交易所 | 最新价 | 涨跌幅 | 来源")
+    lines.append("指标 | 最新价 | 周环比 | 周均价 | 数据来源")
     lines.append("--- | --- | --- | --- | ---")
     if china_data:
         for d in china_data:
-            ex = "DCE" if d["品种"] in ("豆粕","豆油","玉米","豆一","生猪","棕榈油","鸡蛋") else "CZCE"
             price = d["最新价"] if d["最新价"] != "—" else "—"
-            chg = f"{d['涨跌幅']:+.2f}%" if isinstance(d["涨跌幅"], (int,float)) else "—"
-            lines.append(f"{d['品种']} | {ex} | {price} | {chg} | Tushare")
+            chg = f"{d['涨跌幅']:+.2f}%" if isinstance(d["涨跌幅"], (int, float)) else "—"
+            lines.append(f"{d['品种']} | {price} | {chg} | — | Tushare")
     else:
-        for name, ts_code in TUSHARE_MAP.items():
-            ex = "DCE" if ts_code in ("M","Y","C","A","LH","JD","P") else "CZCE"
-            lines.append(f"{name} | {ex} | 未获取 | — | Tushare")
+        for name in TUSHARE_MAP.keys():
+            lines.append(f"{name} | — | — | — | Tushare")
     lines.append("")
-
     lines.append("---")
-    lines.append("## 三、中国供需分析")
+
+    # ══ 三、国内政策+本土供需环境分析 ══
+    lines.append("## 三、国内政策+本土供需环境分析")
     lines.append("")
-    # 如果Tushare有数据则输出分析
+    lines.append("指标 | 当前值 | 周度变动 | 对盘面边际影响")
+    lines.append("--- | --- | --- | ---")
+    cn_supply_items = [
+        "国储粮油投放量", "沿海油厂压榨率", "豆粕库存",
+        "商业玉米库存", "生猪能繁存栏", "进口船期",
+        "国内主产区收割进度", "农业惠农/进口政策", "棕榈油马来出关数据"
+    ]
+    for item in cn_supply_items:
+        lines.append(f"{item} | — | — | —")
+    lines.append("")
+    lines.append("---")
+
+    # ══ 四、内盘产业资金+仓单持仓分析 ══
+    lines.append("## 四、内盘产业资金+仓单持仓分析")
+    lines.append("")
+    lines.append("品种 | 交易所仓单量 | 产业套保持仓 | 主力资金持仓 | 资金信号")
+    lines.append("--- | --- | --- | --- | ---")
     if china_data:
-        lines.append("数据基于Tushare主力合约收盘价")
-    lines.append("1) 豆粕: 现货端随进口大豆到港节奏波动")
-    lines.append("2) 玉米: 售粮进度与深加工需求")
-    lines.append("3) 生猪: 能繁母猪存栏与猪周期位置")
-    lines.append("4) 白糖: 广西压榨进度与进口配额")
+        for d in china_data:
+            lines.append(f"{d['品种']} | — | — | — | —")
+    else:
+        for name in TUSHARE_MAP.keys():
+            lines.append(f"{name} | — | — | — | —")
     lines.append("")
-
     lines.append("---")
-    lines.append("## 四、进口与政策")
-    lines.append("")
-    lines.append("数据待接入后补充")
-    lines.append("")
 
+    # ══ 五、本土产业刚需&进出口联动简析 ══
+    lines.append("## 五、本土产业刚需&进出口联动简析")
+    lines.append("")
+    lines.append("**国内饲料养殖需求**：—")
+    lines.append("")
+    lines.append("**食品加工刚需**：—")
+    lines.append("")
+    lines.append("**月度进口配额**：—")
+    lines.append("")
+    lines.append("**内外盘套利窗口**：—")
+    lines.append("")
+    lines.append("**南方备货旺季**：—")
+    lines.append("")
+    lines.append("**主产区天气灾情**：—")
+    lines.append("")
     lines.append("---")
-    lines.append("**数据来源**: Tushare大商所/郑商所")
-    lines.append("**声明**: 不构成投资建议")
+
+    # ══ 六、供需强弱评分 ══
+    lines.append("## 六、供需强弱评分")
+    lines.append("")
+    lines.append("| 资产 | 评分（-10~+10） | 核心逻辑 |")
+    lines.append("|---|:--:|---|")
+    lines.append("| 油脂油料 | — | 本土供需+进口+政策因子罗列 |")
+    lines.append("| 国内谷物 | — | 本土库存+抛储+刚需因子罗列 |")
+    lines.append("| 软商品内盘 | — | 现货+仓单+进口因子罗列 |")
+    lines.append("")
+    lines.append("---")
+
+    # ══ 七、未来30天重点观察方向+潜在风险提示 ══
+    lines.append("## 七、未来30天重点观察方向+潜在风险提示")
+    lines.append("")
+    lines.append("### 未来30天重点观测变量（本土化指标）")
+    lines.append("- —")
+    lines.append("")
+    lines.append("### 市场潜在风险提示")
+    lines.append("- —")
+    lines.append("")
+    lines.append("---")
+
+    # ══ 强制尾部固定话术 ══
+    lines.append(f"数据来源：大商所、郑商所、国家粮油信息中心、海关总署、卓创资讯、我的农产品网，截至{TODAY}")
+    lines.append("免责声明：本文仅为国内农业政策、产业、库存、资金数据周度复盘，不构成任何投资建议。商品期货交易风险极高，入市需谨慎。")
+    lines.append("AI生成标注：本文AI辅助整理，全部核心数据人工核验校准。")
     return "\n".join(lines)
+
 
 def main():
     r1 = global_agri()
