@@ -49,9 +49,9 @@ def report():
     if wti_p:
         lines.append(f"| WTI原油 | ${wti_p} | ↓ 周内走弱 |")
     if brent_p:
-        lines.append(f"| Brent原油 | ${brent_p} | ↓ 跟随WTI |")
+        lines.append(f"| 布伦特原油 | ${brent_p} | ↓ 跟随WTI |")
     if ng_p:
-        lines.append(f"| Henry Hub天然气 | ${ng_p} | ↓ 小幅回落 |")
+        lines.append(f"| 亨利港天然气 | ${ng_p} | ↓ 小幅回落 |")
     if agsi is not None and not agsi.empty:
         fr = agsi.iloc[0].get("填充率%", "—")
         lines.append(f"| 欧洲天然气库存 | 德国填充率 {fr}% | ↑ 补充季正常 |")
@@ -60,7 +60,7 @@ def report():
     if not cot_wti.empty:
         ci = cot_wti.iloc[0].get("COT Index(26W)", 50)
         sig = "极端看空" if ci <= 10 else "偏空" if ci <= 30 else "中性"
-        lines.append(f"| CFTC原油持仓 | COT Index {ci:.0f} | {sig} |")
+        lines.append(f"| CFTC原油持仓 | COT指数 {ci:.0f} | {sig} |")
     lines.append("")
     
     # 二、原油
@@ -77,7 +77,7 @@ def report():
     if brent_p and wti_p:
         try: spread = f"${float(brent_p)-float(wti_p):+.2f}"
         except: spread = "—"
-    lines.append(f"| Brent-WTI价差 | — | {spread} | 计算 |")
+    lines.append(f"| 布伦特-WTI价差 | — | {spread} | 计算 |")
     lines.append("")
     
     # 2.2 EIA库存
@@ -88,7 +88,7 @@ def report():
     lines.append("| 指标 | 最新值 | 周变化 | 来源 |")
     lines.append("|------|--------|--------|------|")
     lines.append("| 商业原油库存 | 待更新 | — | EIA |")
-    lines.append("| SPR战略储备 | 待更新 | — | EIA |")
+    lines.append("| 战略石油储备(SPR) | 待更新 | — | EIA |")
     lines.append("| 库欣库存 | 待更新 | — | EIA |")
     lines.append("")
     
@@ -99,7 +99,7 @@ def report():
     lines.append("|------|--------|------|")
     lines.append("| 美国原油产量 | 待更新 | EIA |")
     lines.append("| 炼厂开工率 | 待更新 | EIA |")
-    lines.append("| 钻机数量 | 待更新 | Baker Hughes |")
+    lines.append("| 钻机数量 | 待更新 | 贝克休斯 |")
     lines.append("")
     
     # 三、天然气
@@ -110,7 +110,7 @@ def report():
     lines.append("")
     lines.append(f"| 指标 | 最新值 | 来源 |")
     lines.append(f"|------|--------|------|")
-    lines.append(f"| Henry Hub | ${ng_p or '—'} | Yahoo |")
+    lines.append(f"| 亨利港 | ${ng_p or '—'} | Yahoo |")
     lines.append(f"| 库存 | 待更新 | EIA |")
     lines.append("")
     lines.append("### 3.2 欧洲市场")
@@ -122,25 +122,48 @@ def report():
         lines.append("数据待更新")
     lines.append("")
     
-    # 四、OPEC+
+    # 四、欧佩克+
     lines.append("---")
-    lines.append("## 四、OPEC+影响分析")
+    lines.append("## 四、欧佩克+影响分析")
     lines.append("")
-    lines.append("> OPEC MOMR月度报告每月11-15日发布，当前周期内无新决议")
-    lines.append("> 数据待VPS部署后通过OPEC官网获取")
+    lines.append("> 欧佩克月报(MOMR)每月11-15日发布，当前周期内无新决议")
+    lines.append("> 数据待VPS部署后通过欧佩克官网获取")
     lines.append("")
     
     # 五、地缘
     lines.append("---")
     lines.append("## 五、地缘政治影响分析")
     lines.append("")
+
+    # 新闻速览
     news_df = load("financial_news")
     if news_df is not None and not news_df.empty:
-        iran_news = news_df[news_df["標題"].str.contains("Iran|中东|霍尔木兹|原油", na=False)]
-        for _, r in iran_news.head(4).iterrows():
-            lines.append(f"- {r['標題'][:80]}")
-    else:
-        lines.append("新闻数据待更新")
+        # 用中文关键词搜索
+        kw = "伊朗|中东|霍尔木兹|原油|俄罗斯|乌克兰|制裁"
+        energy_news = news_df[news_df["標題"].str.contains(kw, na=False)]
+        if not energy_news.empty:
+            lines.append("### 本周能源地缘新闻")
+            lines.append("")
+            for _, r in energy_news.head(4).iterrows():
+                lines.append(f"- {r['標題'][:80]}")
+            lines.append("")
+    
+    # 结构化地缘分析
+    lines.append("### 中东局势")
+    lines.append("")
+    lines.append("- 伊朗：伊核谈判进展反复，霍尔木兹海峡航运风险持续存在")
+    lines.append("- 以色列-哈马斯：停火谈判前景影响中东整体风险溢价")
+    lines.append("- 沙特：欧佩克+产量政策维稳，沙特主导减产延长执行")
+    lines.append("")
+    lines.append("### 俄乌冲突")
+    lines.append("")
+    lines.append("- 俄罗斯原油出口：西方制裁执行力度影响俄油出口流向")
+    lines.append("- 欧洲能源替代：欧洲加速液化天然气(LNG)进口设施建设")
+    lines.append("")
+    lines.append("### 制裁与贸易政策")
+    lines.append("")
+    lines.append("- 美国对伊朗石油出口制裁执行力度直接影响全球供应")
+    lines.append("- 委内瑞拉制裁松紧程度影响重质原油市场平衡")
     lines.append("")
     
     # 六、CFTC
@@ -149,8 +172,8 @@ def report():
     lines.append("")
     lines.append(f"**报告日期**: 2026-06-02 | **公布日期**: 2026-06-05")
     lines.append("")
-    lines.append("| 品种 | 投机净持仓 | COT Index | Z-Score | 信号 |")
-    lines.append("|------|-----------|-----------|---------|------|")
+    lines.append("| 品种 | 投机净持仓 | COT指数 | Z分数 | 信号 |")
+    lines.append("|------|-----------|---------|-------|------|")
     for _, r in cot.iterrows() if cot is not None else []:
         n = r.get("品種","")
         if "原油" in n or "天然气" in n:
@@ -165,8 +188,8 @@ def report():
     lines.append("")
     lines.append("| 资产 | 评分 | 核心逻辑 |")
     lines.append("|------|------|---------|")
-    lines.append("| 原油 | -3 | 伊朗局势支撑 + OPEC减产执行；但需求担忧限制评分 |")
-    lines.append("| 天然气 | -1 | 库存高位 + 需求季节性偏低；LNG出口支撑 |")
+    lines.append("| 原油 | -3 | 伊朗局势支撑 + 欧佩克减产执行；但需求担忧限制评分 |")
+    lines.append("| 天然气 | -1 | 库存高位 + 需求季节性偏低；液化天然气(LNG)出口支撑 |")
     lines.append("")
     
     # 八、关注
@@ -174,7 +197,7 @@ def report():
     lines.append("## 八、未来30天关注方向")
     lines.append("")
     lines.append("### 核心关注变量")
-    lines.append("- 原油：EIA库存趋势、OPEC+产量政策、伊朗谈判进展")
+    lines.append("- 原油：EIA库存趋势、欧佩克+产量政策、伊朗谈判进展")
     lines.append("- 天然气：美国库存注入速度、欧洲补库进度")
     lines.append("- 地缘：霍尔木兹海峡航运安全、中东停火谈判")
     lines.append("")
