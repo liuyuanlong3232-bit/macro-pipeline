@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
-"""生成报告用图表 - 基于SQLite数据库（含15年历史数据）"""
+"""生成报告用图表 - 基于SQLite数据库（含15年历史数据）
+   排版规范：所有图统一标准
+   - 线图：左下标起始值，右下标最新值（白底框）
+   - 柱图：标注在柱末端外侧
+   - 字体：标题13粗 轴标10 数据标签9 统一灰色
+   - 网格：alpha=0.2 浅灰
+   - 边框：只留底部+左侧
+"""
 import os, sys
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 import sqlite3
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-import matplotlib.dates as mdates
 import numpy as np
 
 DB = Path.home() / "hermes-macro-data" / "hermes.db"
@@ -23,45 +29,81 @@ plt.rcParams["axes.unicode_minus"] = False
 def conn():
     return sqlite3.connect(str(DB))
 
+# 常用颜色
+C = {
+    "gold":   "#E67E22",
+    "silver": "#7F8C8D",
+    "red":    "#E74C3C",
+    "green":  "#27AE60",
+    "blue":   "#2980B9",
+    "purple": "#8E44AD",
+    "orange": "#F39C12",
+    "dark":   "#2C3E50",
+    "gray":   "#95A5A6",
+    "bg":     "#ECF0F1",
+}
+
+def tag_start(ax, x, y, txt):
+    """起始值标注：左下角"""
+    ax.text(x, y, txt, fontsize=9, ha="left", va="bottom",
+            color="#7F8C8D", fontweight="normal")
+
+def tag_end(ax, x, y, txt, color="#2C3E50"):
+    """最新值标注：带白底框"""
+    ax.text(x, y, txt, fontsize=11, ha="right", va="top",
+            color=color, fontweight="bold",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                      edgecolor=color, alpha=0.85))
+
+def clean_spines(ax):
+    """只保留底部+左侧边框"""
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#DDD")
+    ax.spines["bottom"].set_color("#DDD")
+
+def setup_grid(ax):
+    ax.grid(True, alpha=0.2, color="#CCC")
+    ax.set_axisbelow(True)
+
 # ============ 1. FRED关键指标走势 ============
 def chart_fred_trends():
-    """用15年历史数据画走势图"""
-    db = conn()
-    # macro_history表: date, value, indicator
-    indicators = {
-        "联邦基金利率": {"color": "#E74C3C", "ylabel": "%"},
-        "美国CPI": {"color": "#3498DB", "ylabel": "指数"},
-        "美国失业率": {"color": "#27AE60", "ylabel": "%"},
-        "美国10年国债收益率": {"color": "#F39C12", "ylabel": "%"},
-        "10年TIPS收益率": {"color": "#9B59B6", "ylabel": "%"},
-    }
-    
+    """15年FRED宏观指标走势"""
+    indicators = [
+        ("联邦基金利率", "#E74C3C"),
+        ("美国CPI", "#3498DB"),
+        ("美国失业率", "#27AE60"),
+        ("美国10年国债收益率", "#F39C12"),
+        ("10年TIPS收益率", "#9B59B6"),
+    ]
+
     fig, ax = plt.subplots(figsize=(12, 5.5))
-    
-    for name, style in indicators.items():
+    db = conn()
+
+    for name, color in indicators:
         rows = db.execute(
             "SELECT date, value FROM macro_history WHERE indicator=? AND value IS NOT NULL ORDER BY date",
             (name,)
         ).fetchall()
         if len(rows) < 2:
-            print(f"  ⚠️ {name}: 数据不足({len(rows)}行)")
             continue
-        dates = [r[0] for r in rows]
         vals = [float(r[1]) for r in rows]
-        
-        ax.plot(range(len(vals)), vals, color=style["color"], linewidth=1.5,
-                label=name, alpha=0.85)
-        # 标注最新值
-        ax.text(len(vals)-1, vals[-1], f" {vals[-1]:.2f}",
-                va="bottom", fontsize=9, color=style["color"], fontweight="bold")
+        x = range(len(vals))
+        ax.plot(x, vals, color=color, linewidth=1.5, label=name, alpha=0.85)
+        # 最新值标注
+        if len(vals) > 0:
+            last_val = vals[-1]
+            ax.text(len(vals)-1, last_val, f"  {last_val:.2f}",
+                    va="bottom" if name != "美国CPI" else "top",
+                    fontsize=8, color=color, fontweight="bold",
+                    bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
+                              edgecolor=color, alpha=0.8))
 
-    ax.set_title("美国关键宏观指标走势（15年）", fontsize=14, fontweight="bold")
-    ax.set_ylabel("数值", fontsize=11)
+    db.close()
+    ax.set_title("美国关键宏观指标走势（15年）", fontsize=13, fontweight="bold", color=C["dark"])
     ax.legend(fontsize=9, loc="upper left", framealpha=0.8)
-    ax.grid(True, alpha=0.25)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    
+    setup_grid(ax)
+    clean_spines(ax)
     plt.tight_layout()
     p = CHART_DIR / "fred_trends.png"
     fig.savefig(p, dpi=150, bbox_inches="tight")
@@ -71,67 +113,52 @@ def chart_fred_trends():
 
 # ============ 2. 黄金价格走势 ============
 def chart_gold_price():
-    """黄金日线收盘价走势（从2011年）"""
+    """黄金走势：15年+近3年+近1年"""
     db = conn()
     rows = db.execute(
         "SELECT 日期, 收盘 FROM price_history WHERE 品种='gold' AND 收盘 IS NOT NULL ORDER BY 日期"
     ).fetchall()
     db.close()
-    
+
     if len(rows) < 10:
-        print(f"  ⚠️ 黄金数据: {len(rows)}行")
         return None
-    
-    # 数据清洗：过滤明显异常值（黄金价格应在 1000-6000 之间）
+
     cleaned = [(r[0], float(r[1])) for r in rows if 1000 < float(r[1]) < 6000]
     if len(cleaned) < 10:
-        print(f"  ⚠️ 黄金数据清洗后不足: {len(cleaned)}行")
         return None
-    
+
     dates = [r[0] for r in cleaned]
     vals = [r[1] for r in cleaned]
-    print(f"  黄金: {len(cleaned)}行 ({dates[0]} ~ {dates[-1]}, ${vals[-1]:.0f})")
-    
-    # 区间: 最近1年, 3年, 全部
     n = len(dates)
+
     slices = [
-        ("全部(2011~)", 0, n),
-        ("近3年", max(0, n-756), n),
-        ("近1年", max(0, n-252), n),
+        ("全部走势（15年）", 0, n, C["dark"]),
+        ("近3年走势", max(0, n-756), n, C["red"]),
+        ("近1年走势", max(0, n-252), n, C["blue"]),
     ]
-    
-    fig, axes = plt.subplots(3, 1, figsize=(12, 9), gridspec_kw={"height_ratios": [3, 2, 2]})
-    
-    labels_zh = ["全部走势（15年）", "近3年走势", "近1年走势"]
-    colors = ["#2C3E50", "#E74C3C", "#3498DB"]
-    
-    for ax, (label, start, end), lbl, col in zip(axes, slices, labels_zh, colors):
-        s, e = start, end
-        x = list(range(e - s))
+
+    fig, axes = plt.subplots(3, 1, figsize=(12, 9),
+                              gridspec_kw={"height_ratios": [3, 2, 2]})
+
+    for ax, (title, s, e, color) in zip(axes, slices):
         y = vals[s:e]
-        ax.plot(x, y, color=col, linewidth=1.2)
-        ax.fill_between(x, y, alpha=0.08, color=col)
-        ax.set_title(lbl, fontsize=11, fontweight="bold", color=col)
-        ax.set_ylabel("$", fontsize=10)
-        
-        # 各自独立Y轴范围
-        ymin, ymax = min(y), max(y)
-        padding = (ymax - ymin) * 0.15
-        ax.set_ylim(ymin - padding, ymax + padding)
-        
-        # 标注首尾值 - 统一位置
-        # 起始值：靠右下方
-        ax.text(0, y[0], f"${y[0]:,.0f}", fontsize=9, ha="left", va="top",
-                color="#7F8C8D")
-        # 最新值：靠左上方（用bbox背景框防重叠）
-        ax.text(len(y)-1, y[-1], f"${y[-1]:,.0f}", fontsize=11, ha="right", va="bottom",
-                color=col, fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor=col, alpha=0.8))
-        
-        ax.grid(True, alpha=0.2)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
-    
+        x = list(range(len(y)))
+        ax.plot(x, y, color=color, linewidth=1.2)
+        ax.fill_between(x, y, alpha=0.08, color=color)
+
+        # 各自独立Y轴
+        ypad = (max(y) - min(y)) * 0.12
+        ax.set_ylim(min(y) - ypad, max(y) + ypad)
+
+        # 标注：左下起始，右下最新
+        tag_start(ax, 0, y[0], f"${y[0]:,.0f}")
+        tag_end(ax, len(y)-1, y[-1], f"${y[-1]:,.0f}", color)
+
+        ax.set_title(title, fontsize=12, fontweight="bold", color=color)
+        ax.set_ylabel("USD/oz", fontsize=9, color="#666")
+        setup_grid(ax)
+        clean_spines(ax)
+
     plt.tight_layout()
     p = CHART_DIR / "gold_price.png"
     fig.savefig(p, dpi=150, bbox_inches="tight")
@@ -139,43 +166,41 @@ def chart_gold_price():
     print(f"  ✅ 黄金走势(15年): {p}")
     return p
 
-# ============ 3. 白银价格走势 ============
+# ============ 3. 白银走势 ============
 def chart_silver_price():
-    """白银日线走势"""
+    """白银日线+50日均线+200日均线"""
     db = conn()
     rows = db.execute(
         "SELECT 日期, 收盘 FROM price_history WHERE 品种='silver' AND 收盘 IS NOT NULL ORDER BY 日期"
     ).fetchall()
     db.close()
-    
     if len(rows) < 10:
         return None
-    
+
     cleaned = [(r[0], float(r[1])) for r in rows if 5 < float(r[1]) < 200]
     if len(cleaned) < 10:
         return None
-    dates = [r[0] for r in cleaned]
     vals = [r[1] for r in cleaned]
-    n = len(dates)
-    
-    fig, ax = plt.subplots(figsize=(12, 4.5))
-    x = range(n)
-    ax.plot(x, vals, color="#7F8C8D", linewidth=1.0, alpha=0.6)
-    ax.fill_between(x, vals, alpha=0.05, color="#7F8C8D")
-    
-    # 均线
+    n = len(vals)
+
     ma50 = [np.mean(vals[max(0,i-50):i+1]) for i in range(n)]
     ma200 = [np.mean(vals[max(0,i-200):i+1]) for i in range(n)]
-    ax.plot(x, ma50, color="#E67E22", linewidth=1.5, label="50日均线", alpha=0.8)
-    ax.plot(x, ma200, color="#E74C3C", linewidth=1.5, label="200日均线", alpha=0.8)
-    
-    ax.text(n-1, vals[-1], f" ${vals[-1]:.2f}", fontsize=12, color="#2C3E50", fontweight="bold")
-    ax.set_title("白银走势（15年）", fontsize=14, fontweight="bold")
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.2)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    
+
+    fig, ax = plt.subplots(figsize=(12, 4.5))
+    x = range(n)
+
+    ax.plot(x, vals, color=C["gray"], linewidth=0.8, alpha=0.5, label="收盘价")
+    ax.plot(x, ma50, color=C["orange"], linewidth=1.5, label="50日均线", alpha=0.85)
+    ax.plot(x, ma200, color=C["red"], linewidth=1.5, label="200日均线", alpha=0.85)
+
+    tag_start(ax, 0, vals[0], f"${vals[0]:.2f}")
+    tag_end(ax, n-1, vals[-1], f"${vals[-1]:.2f}", C["dark"])
+
+    ax.set_title("白银走势（15年·均线系统）", fontsize=13, fontweight="bold", color=C["dark"])
+    ax.set_ylabel("USD/oz", fontsize=9, color="#666")
+    ax.legend(fontsize=9, loc="upper left", framealpha=0.8)
+    setup_grid(ax)
+    clean_spines(ax)
     plt.tight_layout()
     p = CHART_DIR / "silver_price.png"
     fig.savefig(p, dpi=150, bbox_inches="tight")
@@ -187,38 +212,37 @@ def chart_silver_price():
 def chart_gold_silver_ratio():
     """金银比走势"""
     db = conn()
-    gold = db.execute(
+    g = {r[0]: float(r[1]) for r in db.execute(
         "SELECT 日期, 收盘 FROM price_history WHERE 品种='gold' AND 收盘 IS NOT NULL ORDER BY 日期"
-    ).fetchall()
-    silver = db.execute(
+    ).fetchall() if 1000 < float(r[1]) < 6000}
+    s = {r[0]: float(r[1]) for r in db.execute(
         "SELECT 日期, 收盘 FROM price_history WHERE 品种='silver' AND 收盘 IS NOT NULL ORDER BY 日期"
-    ).fetchall()
+    ).fetchall() if 5 < float(r[1]) < 200}
     db.close()
-    
-    g = {r[0]: float(r[1]) for r in gold if 1000 < float(r[1]) < 6000}
-    s = {r[0]: float(r[1]) for r in silver if 5 < float(r[1]) < 200}
-    
-    common_dates = sorted(set(g) & set(s))
-    if len(common_dates) < 10:
+
+    common = sorted(set(g) & set(s))
+    if len(common) < 10:
         return None
-    
-    ratios = [g[d]/s[d] for d in common_dates]
-    
+    ratios = [g[d]/s[d] for d in common]
+    n = len(ratios)
+    avg_ratio = np.mean(ratios)
+
     fig, ax = plt.subplots(figsize=(12, 4.5))
-    x = range(len(ratios))
-    ax.plot(x, ratios, color="#8E44AD", linewidth=1.2, alpha=0.7)
-    ax.fill_between(x, ratios, alpha=0.06, color="#8E44AD")
-    
-    ax.axhline(np.mean(ratios), color="#2C3E50", linestyle="--", alpha=0.5, label=f"均值 {np.mean(ratios):.1f}x")
-    
-    ax.text(len(ratios)-1, ratios[-1], f" {ratios[-1]:.1f}x", fontsize=12,
-            va="bottom", color="#8E44AD", fontweight="bold")
-    ax.set_title("金银比走势（15年）", fontsize=14, fontweight="bold")
-    ax.legend(fontsize=10)
-    ax.grid(True, alpha=0.2)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    
+    x = range(n)
+    ax.plot(x, ratios, color=C["purple"], linewidth=1.0, alpha=0.6)
+    ax.fill_between(x, ratios, alpha=0.06, color=C["purple"])
+
+    ax.axhline(avg_ratio, color=C["dark"], linestyle="--", alpha=0.4,
+               label=f"均值 {avg_ratio:.1f}x")
+
+    tag_start(ax, 0, ratios[0], f"{ratios[0]:.1f}x")
+    tag_end(ax, n-1, ratios[-1], f"{ratios[-1]:.1f}x", C["purple"])
+
+    ax.set_title("金银比走势（15年）", fontsize=13, fontweight="bold", color=C["dark"])
+    ax.set_ylabel("金价/银价", fontsize=9, color="#666")
+    ax.legend(fontsize=9, loc="upper left", framealpha=0.8)
+    setup_grid(ax)
+    clean_spines(ax)
     plt.tight_layout()
     p = CHART_DIR / "gold_silver_ratio.png"
     fig.savefig(p, dpi=150, bbox_inches="tight")
@@ -228,37 +252,35 @@ def chart_gold_silver_ratio():
 
 # ============ 5. COT净持仓历史 ============
 def chart_cot_net_history():
-    """COT黄金净持仓历史走势"""
+    """黄金COT投机净持仓历史走势"""
     db = conn()
     rows = db.execute(
         "SELECT date, noncomm_net FROM cot_history WHERE commodity='gold' AND noncomm_net IS NOT NULL ORDER BY date"
     ).fetchall()
     db.close()
-    
     if len(rows) < 10:
         return None
-    
-    dates = [r[0] for r in rows]
-    vals = [float(r[1]) for r in rows]
-    n = len(dates)
-    
-    fig, ax1 = plt.subplots(figsize=(12, 4.5))
-    
+
+    vals = [float(r[1])/1000 for r in rows]  # 千手
+    n = len(vals)
+
+    fig, ax = plt.subplots(figsize=(12, 4.5))
     x = range(n)
-    ax1.fill_between(x, vals, where=[v>=0 for v in vals], color="#2ECC71", alpha=0.3)
-    ax1.fill_between(x, vals, where=[v<0 for v in vals], color="#E74C3C", alpha=0.3)
-    ax1.plot(x, vals, color="#2C3E50", linewidth=1.2)
-    ax1.axhline(0, color="gray", linewidth=0.8)
-    
-    ax1.set_ylabel("净持仓(手)", fontsize=11)
-    ax1.set_title("黄金COT投机净持仓历史走势", fontsize=14, fontweight="bold")
-    ax1.grid(True, alpha=0.2)
-    ax1.spines["top"].set_visible(False)
-    ax1.spines["right"].set_visible(False)
-    
-    # 标注最新值
-    ax1.text(n-1, vals[-1], f" {vals[-1]:+,.0f}", fontsize=11, fontweight="bold", color="#2C3E50")
-    
+
+    ax.fill_between(x, vals, where=[v>=0 for v in vals],
+                    color=C["green"], alpha=0.15)
+    ax.fill_between(x, vals, where=[v<0 for v in vals],
+                    color=C["red"], alpha=0.15)
+    ax.plot(x, vals, color=C["dark"], linewidth=1.2)
+    ax.axhline(0, color=C["gray"], linewidth=0.8)
+
+    tag_start(ax, 0, vals[0], f"{vals[0]:+,.0f}K")
+    tag_end(ax, n-1, vals[-1], f"{vals[-1]:+,.0f}K", C["dark"])
+
+    ax.set_title("黄金COT投机净持仓历史走势", fontsize=13, fontweight="bold", color=C["dark"])
+    ax.set_ylabel("净持仓 (千手)", fontsize=9, color="#666")
+    setup_grid(ax)
+    clean_spines(ax)
     plt.tight_layout()
     p = CHART_DIR / "cot_net_history.png"
     fig.savefig(p, dpi=150, bbox_inches="tight")
@@ -266,30 +288,42 @@ def chart_cot_net_history():
     print(f"  ✅ COT净持仓历史(15年): {p}")
     return p
 
-# ============ 6-8. 原本的COT快照图 ============
+# ============ 6. COT净持仓排行榜 ============
 def chart_cot_net():
+    """COT净持仓柱状图"""
     db = conn()
     rows = db.execute(
         'SELECT 品種, "投機淨持倉" FROM cotdata ORDER BY "投機淨持倉" DESC'
     ).fetchall()
     db.close()
+    if not rows:
+        return None
+
     items = [r[0] for r in rows]
     vals = [float(r[1])/1000 for r in rows]
+
     fig, ax = plt.subplots(figsize=(10, 5))
-    colors = ["#E74C3C" if v < 0 else "#2ECC71" for v in vals]
-    bars = ax.barh(range(len(items)), vals, color=colors, height=0.6)
+    colors = [C["red"] if v < 0 else C["green"] for v in vals]
+    bars = ax.barh(range(len(items)), vals, color=colors, height=0.6, edgecolor="white", linewidth=0.5)
+
     ax.set_yticks(range(len(items)))
     ax.set_yticklabels(items, fontsize=10)
-    ax.set_xlabel("投机净持仓 (千手)", fontsize=10)
-    ax.set_title("COT投机净持仓排行榜", fontsize=13, fontweight="bold")
-    ax.axvline(0, color="gray", linewidth=0.8)
-    for i, (v, bar) in enumerate(zip(vals, bars)):
-        label = f"{v:+.1f}K" if abs(v) < 1000 else f"{v/1000:+.2f}M"
-        x = v + (50 if v >= 0 else -50)
+    ax.set_xlabel("投机净持仓 (千手)", fontsize=10, color="#555")
+    ax.set_title("COT投机净持仓排行榜", fontsize=13, fontweight="bold", color=C["dark"])
+    ax.axvline(0, color=C["gray"], linewidth=0.8)
+
+    # 柱末端标注
+    for v, bar in zip(vals, bars):
+        offset = 8
+        x_pos = v + offset if v >= 0 else v - offset
         ha = "left" if v >= 0 else "right"
-        ax.text(x, i, label, va="center", ha=ha, fontsize=8, color="#2C3E50")
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+        ax.text(x_pos, bar.get_y() + bar.get_height()/2,
+                f"{v:+,.0f}K", va="center", ha=ha, fontsize=9,
+                color=C["dark"],
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
+                          edgecolor="none", alpha=0.7))
+
+    clean_spines(ax)
     plt.tight_layout()
     p = CHART_DIR / "cot_net.png"
     fig.savefig(p, dpi=150, bbox_inches="tight")
@@ -297,34 +331,51 @@ def chart_cot_net():
     print(f"  ✅ COT净持仓: {p}")
     return p
 
+# ============ 7. COT Index一览 ============
 def chart_cot_index():
+    """COT Index 柱状图"""
     db = conn()
     rows = db.execute(
         'SELECT 品種, "COT Index(26W)" FROM cotdata ORDER BY "COT Index(26W)" DESC'
     ).fetchall()
     db.close()
+    if not rows:
+        return None
+
     items = [r[0] for r in rows]
     vals = [float(r[1]) for r in rows]
+
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.axvspan(0, 5, alpha=0.08, color="#E74C3C")
-    ax.axvspan(95, 100, alpha=0.08, color="#E74C3C")
-    ax.axvspan(5, 95, alpha=0.04, color="#3498DB")
+
+    ax.axvspan(0, 5, alpha=0.06, color=C["red"])
+    ax.axvspan(95, 100, alpha=0.06, color=C["red"])
+    ax.axvspan(5, 95, alpha=0.03, color=C["blue"])
+
     colors = []
     for v in vals:
-        if v >= 95: colors.append("#E74C3C")
-        elif v <= 5: colors.append("#27AE60")
-        else: colors.append("#3498DB")
-    bars = ax.barh(range(len(items)), vals, color=colors, height=0.6)
+        if v >= 95:
+            colors.append(C["red"])
+        elif v <= 5:
+            colors.append(C["green"])
+        else:
+            colors.append(C["blue"])
+
+    bars = ax.barh(range(len(items)), vals, color=colors, height=0.6,
+                    edgecolor="white", linewidth=0.5)
+
     ax.set_yticks(range(len(items)))
     ax.set_yticklabels(items, fontsize=10)
-    ax.set_xlabel("COT Index (26周)", fontsize=10)
-    ax.set_title("COT Index 一览", fontsize=13, fontweight="bold")
-    ax.set_xlim(0, 105)
+    ax.set_xlabel("COT Index (26周)", fontsize=10, color="#555")
+    ax.set_title("COT Index 一览", fontsize=13, fontweight="bold", color=C["dark"])
+    ax.set_xlim(0, 108)
+
+    # 在柱末端标注数值
     for v, bar in zip(vals, bars):
-        ax.text(v + 1.5, bar.get_y() + bar.get_height()/2, f"{v:.0f}",
-                va="center", fontsize=8, color="#2C3E50")
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+        x_pos = v + 0.8
+        ax.text(x_pos, bar.get_y() + bar.get_height()/2,
+                f"{v:.0f}", va="center", fontsize=9, color=C["dark"])
+
+    clean_spines(ax)
     plt.tight_layout()
     p = CHART_DIR / "cot_index.png"
     fig.savefig(p, dpi=150, bbox_inches="tight")
@@ -332,26 +383,36 @@ def chart_cot_index():
     print(f"  ✅ COT Index: {p}")
     return p
 
+# ============ 8. COT多空对比 ============
 def chart_cot_long_short():
+    """投机多空对比"""
     db = conn()
     rows = db.execute(
         'SELECT 品種, "投機多頭", "投機空頭" FROM cotdata ORDER BY "投機淨持倉" DESC'
     ).fetchall()
     db.close()
+    if not rows:
+        return None
+
     items = [r[0] for r in rows]
     longs = [float(r[1])/1000 for r in rows]
     shorts = [float(r[2])/1000 for r in rows]
+
     fig, ax = plt.subplots(figsize=(10, 5))
     y = range(len(items))
-    ax.barh(y, longs, height=0.35, color="#2ECC71", alpha=0.8, label="投機多頭")
-    ax.barh([i+0.35 for i in y], shorts, height=0.35, color="#E74C3C", alpha=0.8, label="投機空頭")
-    ax.set_yticks([i+0.175 for i in y])
+
+    ax.barh([i+0.18 for i in y], longs, height=0.35,
+            color=C["green"], alpha=0.85, label="投機多頭")
+    ax.barh([i-0.18 for i in y], shorts, height=0.35,
+            color=C["red"], alpha=0.85, label="投機空頭")
+
+    ax.set_yticks(range(len(items)))
     ax.set_yticklabels(items, fontsize=10)
-    ax.set_xlabel("持仓 (千手)", fontsize=10)
-    ax.set_title("COT投机多空对比", fontsize=13, fontweight="bold")
-    ax.legend(fontsize=9)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
+    ax.set_xlabel("持仓 (千手)", fontsize=10, color="#555")
+    ax.set_title("COT投机多空对比", fontsize=13, fontweight="bold", color=C["dark"])
+    ax.legend(fontsize=9, loc="lower right", framealpha=0.8)
+
+    clean_spines(ax)
     plt.tight_layout()
     p = CHART_DIR / "cot_long_short.png"
     fig.savefig(p, dpi=150, bbox_inches="tight")
@@ -363,7 +424,7 @@ def chart_cot_long_short():
 def generate_all():
     print(f"📊 生成图表 ({datetime.now().strftime('%Y-%m-%d %H:%M')})")
     charts = {}
-    
+
     for name, fn in [
         ("cot_net", chart_cot_net),
         ("cot_index", chart_cot_index),
@@ -380,7 +441,7 @@ def generate_all():
                 charts[name] = p
         except Exception as e:
             print(f"  ❌ {name}: {e}")
-    
+
     print(f"  ✅ 共生成 {len(charts)} 张图")
     return charts
 
