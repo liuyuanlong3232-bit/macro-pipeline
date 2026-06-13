@@ -152,6 +152,7 @@ def global_agri():
 
     lines.append("---")
     lines.append("**数据来源**: Yahoo Finance、CFTC COT、NOAA CPC、USDA")
+    lines.append("**声明**: 不构成投资建议")
     return "\n".join(lines)
 
 # ═══ 中国农业 ═══
@@ -196,8 +197,9 @@ def china_agri():
     lines.append("")
 
     lines.append("---")
-    lines.append("## 三、现货基差与供需")
+    lines.append("## 三、中国供需分析")
     lines.append("")
+    # 如果Tushare有数据则输出分析
     if china_data:
         lines.append("数据基于Tushare主力合约收盘价")
     lines.append("1) 豆粕: 现货端随进口大豆到港节奏波动")
@@ -207,7 +209,14 @@ def china_agri():
     lines.append("")
 
     lines.append("---")
+    lines.append("## 四、进口与政策")
+    lines.append("")
+    lines.append("数据待接入后补充")
+    lines.append("")
+
+    lines.append("---")
     lines.append("**数据来源**: Tushare大商所/郑商所")
+    lines.append("**声明**: 不构成投资建议")
     return "\n".join(lines)
 
 def main():
