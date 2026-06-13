@@ -26,54 +26,43 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
 # ═══════════════════════════════════════════════════════════
 def fetch_baker_hughes(use_proxy=True):
     """
-    从 Baker Hughes 首页爬取北美（US + Canada）钻机总数。
-    URL: https://rigcount.bakerhughes.com/
-    返回 dict:
-      {
-        "us_count": int,
-        "canada_count": int,
-        "na_total": int,
-        "us_change": str,
-        "canada_change": str,
-        "date": "2026-06-12",
-        "source": "Baker Hughes"
-      }
-    失败返回 None
+    从 Baker Hughes 首页爬取北美钻机总数。
+    VPS上直接用curl（Python requests被Cloudflare拦截，curl能过）
     """
-    proxies = get_proxy() if use_proxy else None
     try:
-        r = requests.get("https://rigcount.bakerhughes.com/",
-                         timeout=20, proxies=proxies, headers=UA)
-        if r.status_code != 200:
+        import subprocess
+        cmd = [
+            "curl", "-s", "https://rigcount.bakerhughes.com/",
+            "-H", "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+            "--max-time", "15"
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        if r.returncode != 0 or not r.stdout:
             return None
-        soup = BeautifulSoup(r.text, "lxml")
+        soup = BeautifulSoup(r.stdout, "lxml")
         table = soup.find("table")
         if not table:
             return None
-        rows = table.find_all("tr")
-        result = {"source": "Baker Hughes"}
-        for row in rows:
+        result = {"source": "Baker Hughes (curl)"}
+        for row in table.find_all("tr"):
             cells = row.find_all("td")
             if len(cells) >= 6:
                 area = cells[0].get_text(strip=True)
                 date_raw = cells[1].get_text(strip=True)
-                count = cells[2].get_text(strip=True)
+                count = cells[2].get_text(strip=True).replace(",", "")
                 chg = cells[3].get_text(strip=True)
-                if area.upper() == "U.S.":
-                    result["us_count"] = int(count.replace(",", ""))
+                if "U.S." in area or area.upper() == "US":
+                    result["us_count"] = int(count)
                     result["us_change"] = chg
-                elif area.upper() == "CANADA":
-                    result["canada_count"] = int(count.replace(",", ""))
+                elif "Canada" in area:
+                    result["canada_count"] = int(count)
                     result["canada_change"] = chg
-                # Parse date
-                # date_raw looks like "12 June2026"
+                # 解析日期
                 m = re.match(r'(\d+)\s*(\w+)(\d{4})', date_raw)
                 if m:
                     day, mon_str, year = m.groups()
-                    month_map = {
-                        "January":1,"February":2,"March":3,"April":4,"May":5,"June":6,
-                        "July":7,"August":8,"September":9,"October":10,"November":11,"December":12
-                    }
+                    month_map = {"January":1,"February":2,"March":3,"April":4,"May":5,"June":6,
+                                 "July":7,"August":8,"September":9,"October":10,"November":11,"December":12}
                     month = month_map.get(mon_str, 1)
                     result["date"] = f"{year}-{month:02d}-{int(day):02d}"
         if "us_count" in result and "canada_count" in result:
