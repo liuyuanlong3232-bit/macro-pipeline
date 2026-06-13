@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 import pandas as pd
+import akshare as ak
 
 load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
 DATA_DIR = Path.home() / "hermes-macro-data"
@@ -50,6 +51,45 @@ def gv_vix(df):
         return None, None
     row = df.iloc[0]
     return row["价格"], row.get("报告日期", "")
+
+
+def fetch_cn_macro():
+    """AKShare获取中国宏观实时数据：DR007/LPR/准备金率/SHIBOR"""
+    result = {}
+    try:
+        df = ak.repo_rate_query()
+        if df is not None and not df.empty:
+            r = df.iloc[-1]
+            result["dr007"] = r["FR007"]
+            result["repo_date"] = r["date"]
+    except:
+        pass
+    try:
+        df = ak.macro_china_shibor_all()
+        if df is not None and not df.empty:
+            r = df.iloc[-1]
+            result["shibor_1w"] = r["1W-定价"]
+            result["shibor_date"] = r["日期"]
+    except:
+        pass
+    try:
+        df = ak.macro_china_lpr()
+        if df is not None and not df.empty:
+            r = df.iloc[-1]
+            result["lpr1y"] = r["LPR1Y"]
+            result["lpr5y"] = r["LPR5Y"]
+            result["lpr_date"] = r["TRADE_DATE"]
+    except:
+        pass
+    try:
+        df = ak.macro_china_reserve_requirement_ratio()
+        if df is not None and not df.empty:
+            r = df.iloc[-1]
+            result["rrr_large"] = r.get("大型金融机构-调整后", r.get("大型金融机构-调整前"))
+    except:
+        pass
+    return result
+
 
 def fmt_val(v, kind="number"):
     """数值格式化"""
@@ -183,29 +223,23 @@ def compute_scores(fred):
             score_risk += 1
             risk_reasons.append(f"美元弱勢利好新興市場")
 
-    # 国内货币环境：从FRED找中国相关指标
-    # 使用人民币汇率或中国利率等指标
-    fcni, _ = gv(fred, "中國")
-    if fcni is not None:
-        cn_reasons.append(f"中國宏觀指標可用")
-        score_cn += 1
-    else:
-        cn_reasons.append("中國宏觀數據暫缺")
-
-    # 中国DR007代理：用FRED中的中国利率
-    cn_rate, _ = gv(fred, "DR007")
-    if cn_rate is not None:
-        cn_rate = float(cn_rate)
-        if cn_rate > 2.5:
+    # 中国货币环境 — 从AKShare获取
+    cn_data_scr = fetch_cn_macro()
+    dr007 = cn_data_scr.get("dr007")
+    lpr = cn_data_scr.get("lpr1y")
+    rrr = cn_data_scr.get("rrr_large")
+    cn_notes = []
+    if dr007:
+        cn_notes.append(f"DR007{float(dr007):.2f}%")
+        if float(dr007) > 2.5:
             score_cn -= 1
-            cn_reasons.append(f"DR007{cn_rate:.2f}%偏高")
-        elif cn_rate > 1.5:
-            cn_reasons.append(f"DR007{cn_rate:.2f}%中性")
-        else:
+        elif float(dr007) < 1.5:
             score_cn += 1
-            cn_reasons.append(f"DR007{cn_rate:.2f}%偏低")
-
-    # 钳制到[-10, 10]
+    if lpr:
+        cn_notes.append(f"LPR1Y={lpr}%")
+    if rrr:
+        cn_notes.append(f"存准率{rrr}%")
+    cn_reasons.append("；".join(cn_notes) if cn_notes else "中国宏观数据暂缺")
     score_us = max(-10, min(10, score_us))
     score_risk = max(-10, min(10, score_risk))
     score_cn = max(-10, min(10, score_cn))
@@ -254,7 +288,13 @@ def report():
     lines.append(f"| 美联储降息概率 | — | →震荡 |")
     lines.append(f"| VIX恐慌指数 | — | →震荡 |")
     lines.append(f"| 跨境美元流动性 | — | →震荡 |")
-    lines.append(f"| 中国DR007利率 | — | →震荡 |")
+    
+    # 中国DR007 — AKShare
+    cn_data = fetch_cn_macro()
+    dr007 = cn_data.get("dr007")
+    dr7_str = f"{dr007:.2f}%" if dr007 else "—"
+    dir_dr7 = "↑" if dr007 and dr007 > 2.0 else ("↓" if dr007 and dr007 < 1.4 else "→震荡") if dr007 else "→震荡"
+    lines.append(f"| 中国DR007利率 | {dr7_str} | {dir_dr7} |")
     lines.append("")
     lines.append("**本周核心总结**：美联储政策预期维持" + ("紧缩" if dir_ff == "↑" else "观望" if dir_ff == "→震荡" else "宽松") +
                  "基调，欧美通胀边际" + ("上行" if dir_tips == "↑" else "回落" if dir_tips == "↓" else "平稳") +
@@ -382,16 +422,22 @@ def report():
     cn_cpi, _ = gv(fred, "中國CPI")
     cn_pmi, _ = gv(fred, "中國PMI")
     cn_gdp, _ = gv(fred, "中國GDP")
-    cn_mlf, _ = gv(fred, "MLF")
     cn_social, _ = gv(fred, "社融")
+    
+    # AKShare中国指标
+    cn_data = fetch_cn_macro()
+    lpr1y = cn_data.get("lpr1y")
+    lpr5y = cn_data.get("lpr5y")
+    rrr = cn_data.get("rrr_large")
+    shibor_1w = cn_data.get("shibor_1w")
 
     rows5 = [
-        ("MLF利率", fmt_val(cn_mlf, "rate") if cn_mlf is not None else "—", "—", "FRED"),
-        ("社融高频", fmt_val(cn_social) if cn_social is not None else "—", "—", "FRED"),
-        ("地产竣工数据", "—", "—", "Wind"),
+        ("MLF利率(锚-LPR1Y)", f"{lpr1y:.1f}%" if lpr1y else "—", "—", "AKShare"),
+        ("LPR5Y", f"{lpr5y:.1f}%" if lpr5y else "—", "—", "AKShare"),
+        ("社融高频", "—", "—", "AKShare待查"),
         ("人民币跨境收付", "—", "—", "Wind"),
-        ("国内流动性", "—", "—", "Wind"),
-        ("央行公开市场操作", "—", "—", "Wind"),
+        ("国内流动性(存准率)", f"{rrr:.1f}%" if rrr else "—", "—", "AKShare"),
+        ("SHIBOR 1W", f"{shibor_1w:.2f}%" if shibor_1w else "—", "—", "AKShare"),
         ("国内通胀高频", fmt_val(cn_cpi) if cn_cpi is not None else "—", "—", "FRED"),
     ]
     for row in rows5:
