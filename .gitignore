@@ -3,3 +3,11 @@
 __pycache__/
 *.pyc
 .DS_Store
+_*.py
+check*.py
+debug*.py
+test_*.py
+verify*.py
+create_*.py
+save_*.py
+write_*.py
