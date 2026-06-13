@@ -434,7 +434,7 @@ def report():
     rows5 = [
         ("MLF利率(锚-LPR1Y)", f"{lpr1y:.1f}%" if lpr1y else "—", "—", "AKShare"),
         ("LPR5Y", f"{lpr5y:.1f}%" if lpr5y else "—", "—", "AKShare"),
-        ("社融高频", "—", "—", "AKShare待查"),
+        ("社融高频", "—", "—", "Tushare sf_month待积分升级(需2000分)"),
         ("人民币跨境收付", "—", "—", "Wind"),
         ("国内流动性(存准率)", f"{rrr:.1f}%" if rrr else "—", "—", "AKShare"),
         ("SHIBOR 1W", f"{shibor_1w:.2f}%" if shibor_1w else "—", "—", "AKShare"),

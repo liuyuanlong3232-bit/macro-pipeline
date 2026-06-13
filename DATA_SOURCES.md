@@ -17,12 +17,13 @@
 | 6 | **Tushare中国期货** | `api.tushare.pro` (POST) | 中国农业 | agri_weekly.py → `fetch_china_futures()` | 需Token(`TUSHARE_TOKEN`)，仅交易日 |
 | 7 | **Open-Meteo降水/温度** | `api.open-meteo.com/v1/forecast` | 国际农业 | data_scrapers.py → `fetch_openmeteo_precip()` | **完全免费，无Key**，5个农业区坐标 |
 | 8 | **AKShare中国宏观** | 本地Python库 | 宏观 | macro_weekly.py → `fetch_cn_macro()` | pip install akshare，无Key |
-| 9 | **Finnhub财经新闻** | `finnhub.io/api/v1/news` | 能源/地缘 | macro_pipeline.py → `fetch_finnhub()` | 需API Key(`FINNHUB_KEY`) |
-| 10 | **AGSI+欧洲天然气库存** | `agsi.gie.eu/api` | 能源 | macro_pipeline.py → `fetch_agsi()` | 需API Key(`AGSI_KEY`) |
-| 11 | **Cotdata.net CFTC持仓** | `cotdata.net` demo接口 | 贵金属/农业 | macro_pipeline.py → `fetch_cot()` | 目前用公开demo，后续需关注稳定性 |
-| 12 | **FedWatch降息概率** | `oddpool.com` | 宏观 | macro_pipeline.py → `fetch_fedwatch()` | 网页API，不挑用户代理 |
-| 13 | **EIA weather 天气** | `api.eia.gov/v2/weather` | 宏观(备用) | macro_pipeline.py → `fetch_weather()` | 同上EIA Key |
-| 14 | **日本e-Stat宏观** | `api.e-stat.go.jp` | 宏观(备用) | macro_pipeline.py → `fetch_estat()` | 需Key(`ESTAT_API_KEY`)，国内可能慢 |
+| 9 | **Tushare社融(sf_month)** | `api.tushare.pro` → `pro.sf_month()` | 宏观 | 待集成(积分不足) | 需2000积分(当前120)，接口名sf_month，文档doc_id=310 |
+| 10 | **Finnhub财经新闻** | `finnhub.io/api/v1/news` | 能源/地缘 | macro_pipeline.py → `fetch_finnhub()` | 需API Key(`FINNHUB_KEY`) |
+| 11 | **AGSI+欧洲天然气库存** | `agsi.gie.eu/api` | 能源 | macro_pipeline.py → `fetch_agsi()` | 需API Key(`AGSI_KEY`) |
+| 12 | **Cotdata.net CFTC持仓** | `cotdata.net` demo接口 | 贵金属/农业 | macro_pipeline.py → `fetch_cot()` | 目前用公开demo，后续需关注稳定性 |
+| 13 | **FedWatch降息概率** | `oddpool.com` | 宏观 | macro_pipeline.py → `fetch_fedwatch()` | 网页API，不挑用户代理 |
+| 14 | **EIA weather 天气** | `api.eia.gov/v2/weather` | 宏观(备用) | macro_pipeline.py → `fetch_weather()` | 同上EIA Key |
+| 15 | **日本e-Stat宏观** | `api.e-stat.go.jp` | 宏观(备用) | macro_pipeline.py → `fetch_estat()` | 需Key(`ESTAT_API_KEY`)，国内可能慢 |
 
 ### AKShare 中国宏观函数表
 
@@ -32,7 +33,7 @@
 | `ak.macro_china_shibor_all()` | SHIBOR全期限(ON/1W/1M/1Y) | 1W=1.45% |
 | `ak.macro_china_lpr()` | LPR 1Y / LPR 5Y | 3.0% / 3.5% |
 | `ak.macro_china_reserve_requirement_ratio()` | 存款准备金率(大/中小金融机构) | 9.5% |
-| `ak.macro_china_shrzgm()` | 社会融资规模 | ⚠️ SSL握手失败(2026-06) |
+| `ak.macro_china_shrzgm()` | 社会融资规模 | ⚠️ SSL握手失败(2026-06)；改用Tushare `sf_month`(需2000分) |
 
 ---
 
@@ -69,8 +70,8 @@
 | 5 | **生猪能繁存栏** | 农业部月度数据，滞后 | 涌益咨询/钢联 |
 | 6 | **USDA出口销售(周度)** | USDA FAS需FTP订阅 | 免费：USDA出口检验(TXT)已替代 |
 | 7 | **波罗的海BDI** | Investing.com有反爬 | 可换Yahoo Finance ^BDI |
-| 8 | **中国DR007/MLF/社融** | Tushare无此接口 | AKShare已替代DR007/LPR/存准率 |
-| 9 | **NOAA CPC降水** | 网站结构调整404 | Open-Meteo已完美替代 |
+| 9 | **中国DR007/社融/MLF** | AKShare已替代DR007/LPR/存准率；Tushare `sf_month` 需2000积分 | Tushare Pro升级积分 |
+| 10 | **NOAA CPC降水** | 网站结构调整404 | Open-Meteo已完美替代 |
 
 ---
 
