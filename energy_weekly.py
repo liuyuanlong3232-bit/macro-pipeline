@@ -126,8 +126,30 @@ def report():
     lines.append("---")
     lines.append("## 四、欧佩克+影响分析")
     lines.append("")
-    lines.append("> 欧佩克月报(MOMR)每月11-15日发布，当前周期内无新决议")
-    lines.append("> 数据待VPS部署后通过欧佩克官网获取")
+    
+    # 获取OPEC数据
+    from opec_data import fetch_eia_opec
+    opec = fetch_eia_opec()
+    if opec and opec.get("latest"):
+        chg = opec.get("change", 0)
+        em = "↑" if chg and chg > 0 else "↓" if chg and chg < 0 else "→"
+        lines.append(f"| 指标 | 当前值 | 月环比 | 数据来源 |")
+        lines.append(f"|------|--------|--------|----------|")
+        lines.append(f"| {opec['series']}（{opec['unit']}）| {opec['latest']} | {em} {abs(chg):.2f} | {opec['source']} |")
+        lines.append(f"| 数据截止 | {opec['period']} | — | — |")
+    else:
+        lines.append("| 指标 | 当前值 | 数据来源 |")
+        lines.append("|------|--------|----------|")
+        lines.append(f"| 欧佩克产量 | 待更新 | EIA STEO |")
+    lines.append("")
+    
+    # 欧佩克政策要点
+    lines.append("### 当前产量政策")
+    lines.append("")
+    lines.append("- 欧佩克+减产协议延长至2026年底，合计约220万桶/日自愿减产")
+    lines.append("- 沙特主导减产执行，超额补偿机制约束伊拉克、哈萨克斯坦等国")
+    lines.append("- 阿联酋获得逐步增产配额，2026年起小幅提升")
+    lines.append("- 俄罗斯产量受制裁影响，实际产量低于配额")
     lines.append("")
     
     # 五、地缘
