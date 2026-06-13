@@ -113,13 +113,28 @@ def send_report(filepath, chart_type=""):
         if stripped.startswith("# ") and not stripped.startswith("## "):
             continue
 
-        # 检测表格行：以|开头
-        if stripped.startswith("|"):
+        # 检测表格行：包含|且不纯粹是分隔符
+        is_table_row = False
+        if "|" in stripped:
+            # 排除纯分隔行 (---|:---)
+            cleaned = stripped.replace("|", "").replace("-", "").replace(":", "").strip()
+            if cleaned and len(cleaned) > 2:
+                cells = [c.strip() for c in stripped.split("|")]
+                # 过滤掉空单元格造成的假行
+                real_cells = [c for c in cells if c.strip()]
+                if len(real_cells) >= 2:  # 至少2列才算表格
+                    is_table_row = True
+
+        if is_table_row:
             # 跳过表格分隔行 (|---|)
             if set(stripped.replace("|", "").replace("-", "").replace(":", "").strip()) <= set(" "):
                 continue
-            cells = [c.strip() for c in stripped.split("|")[1:-1]]
-            if not cells:
+            cells = [c.strip() for c in stripped.split("|")]
+            # 如果行首尾有|，去掉首尾的空单元格
+            if stripped.startswith("|") and stripped.endswith("|"):
+                cells = cells[1:-1]
+            cells = [c.strip() for c in cells if c.strip()]
+            if not cells or len(cells) < 2:
                 continue
             # 判断是否是表头行（上一行是分隔行 or 当前行包含---）
             is_header = False
