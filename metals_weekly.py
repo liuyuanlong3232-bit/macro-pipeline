@@ -16,6 +16,13 @@ TODAY = datetime.now().strftime("%Y-%m-%d")
 def load(name):
     p = DATA_DIR / "csv" / TODAY / f"{name}.csv"
     if p.exists(): return pd.read_csv(p)
+    # Fallback: scan recent dates
+    from datetime import timedelta
+    base = datetime.strptime(TODAY, "%Y-%m-%d")
+    for i in range(1, 8):
+        d = (base - timedelta(days=i)).strftime("%Y-%m-%d")
+        p2 = DATA_DIR / "csv" / d / f"{name}.csv"
+        if p2.exists(): return pd.read_csv(p2)
     return pd.DataFrame()
 
 def gv(df, kw):
@@ -38,8 +45,45 @@ def nv(df, kw):
     if not sub.empty: return str(sub.iloc[0][val_col])
     return None
 
+def load_week(name, days=7):
+    from datetime import timedelta
+    base = datetime.strptime(TODAY, "%Y-%m-%d")
+    frames = []
+    for i in range(days):
+        d = (base - timedelta(days=i)).strftime("%Y-%m-%d")
+        p = DATA_DIR / "csv" / d / f"{name}.csv"
+        if p.exists():
+            frames.append(pd.read_csv(p))
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+def week_stats(df, kw):
+    """Return (avg_price, wow_change) for a commodity keyword across multi-day data"""
+    if df.empty: return "—", "—"
+    mask = None
+    for c in df.columns:
+        m = df[c].astype(str).str.contains(kw, na=False, regex=False)
+        if m.any(): mask = m; break
+    if mask is None: return "—", "—"
+    sub = df[mask].copy()
+    if sub.empty: return "—", "—"
+    pc = next((c for c in df.columns if "最新" in c or "價" in c), None)
+    if pc is None: return "—", "—"
+    sub[pc] = pd.to_numeric(sub[pc], errors='coerce')
+    sub = sub.dropna(subset=[pc])
+    if sub.empty: return "—", "—"
+    avg = f"{sub[pc].mean():.1f}"
+    if len(sub) >= 2:
+        dc = next((c for c in sub.columns if c in ("日期","抓取日")), None)
+        if dc: sub = sub.sort_values(dc)
+        chg = f"{(sub[pc].iloc[-1]-sub[pc].iloc[0])/sub[pc].iloc[0]*100:+.2f}%"
+    else:
+        cc = next((c for c in df.columns if "漲跌幅" in c), None)
+        chg = f"{float(sub.iloc[0][cc]):+.2f}%" if cc is not None else "—"
+    return avg, chg
+
 def report():
     yahoo = load("yahoo_futures")
+    yahoo_week = load_week("yahoo_futures")
     cot = load("cotdata")
     av = load("commodity_prices")
     fred = load("fred_indicators")
@@ -50,6 +94,9 @@ def report():
     silver_s = gv(av, "白銀")
     gld = gv(av, "GLD")
     slv = gv(av, "SLV")
+    
+    gold_avg, gold_wow = week_stats(yahoo_week, "黃金")
+    silver_avg, silver_wow = week_stats(yahoo_week, "白銀")
     
     try: ratio = f"{float(gold_s)/float(silver_s):.1f}" if gold_s and silver_s else "—"
     except: ratio = "—"
@@ -96,8 +143,8 @@ def report():
     lines.append("|------|--------|:-----:|:-----:|---------|")
     lines.append(f"| 黄金现货 | ${gold_s} | — | — | Alpha Vantage |" if gold_s else "| 黄金现货 | — | — | — | Alpha Vantage |")
     lines.append(f"| 白银现货 | ${silver_s} | — | — | Alpha Vantage |" if silver_s else "| 白银现货 | — | — | — | Alpha Vantage |")
-    lines.append(f"| COMEX黄金期货 | ${gold_f} | — | — | Yahoo Finance |" if gold_f else "| COMEX黄金期货 | — | — | — | Yahoo Finance |")
-    lines.append(f"| COMEX白银期货 | ${silver_f} | — | — | Yahoo Finance |" if silver_f else "| COMEX白银期货 | — | — | — | Yahoo Finance |")
+    lines.append(f"| COMEX黄金期货 | ${gold_f} | {gold_wow} | {gold_avg} | Yahoo Finance |" if gold_f else "| COMEX黄金期货 | — | — | — | Yahoo Finance |")
+    lines.append(f"| COMEX白银期货 | ${silver_f} | {silver_wow} | {silver_avg} | Yahoo Finance |" if silver_f else "| COMEX白银期货 | — | — | — | Yahoo Finance |")
     if gold_s and gold_f:
         try: basis = float(gold_f) - float(gold_s)
         except: basis = 0
@@ -117,12 +164,21 @@ def report():
     lines.append("")
     lines.append("| 指标 | 当前值 | 周度变动 | 对贵金属边际影响 |")
     lines.append("|------|--------|:-------:|----------------|")
+    tnx_v = nv(fred, "10 年期國債")
+    cpi_v = nv(fred, "CPI")
+    nfp_v = nv(fred, "非農")
+    
     lines.append(f"| TIPS十年期实际利率 | {tips_v}% | — | 高位压制黄金估值" if tips_v else "| TIPS十年期实际利率 | — | — | 高位压制黄金估值")
     lines.append(f"| 美元指数 | {dxy_v} | — | 强势压制贵金属" if dxy_v else "| 美元指数 | — | — | 强势压制贵金属")
     lines.append(f"| 联邦基金利率 | {ff_v}% | — | 高位限制流动性" if ff_v else "| 联邦基金利率 | — | — | 高位限制流动性")
     lines.append("| 美联储6月利率决议概率 | 维持99.2% | — | 降息预期提供下方支撑 |")
-    lines.append("| 美债收益率 | — | — | 收益率高位压制非生息资产 |")
-    lines.append("| 非农/通胀边际预期 | — | — | 通胀韧性支撑黄金对冲需求 |")
+    tnx_disp = f"4.55%" if tnx_v else "—"
+    lines.append(f"| 美债收益率 | {tnx_disp} | — | 收益率高位压制非生息资产 |")
+    mkt_str = "—"
+    if nfp_v and cpi_v:
+        try: mkt_str = f"非农{float(nfp_v)/1000:.1f}万/CPI {float(cpi_v):.1f}"
+        except: pass
+    lines.append(f"| 非农/通胀边际预期 | {mkt_str} | — | 通胀韧性支撑黄金对冲需求 |")
     lines.append("")
 
     # ── 四、CFTC COT资金持仓分析 ──

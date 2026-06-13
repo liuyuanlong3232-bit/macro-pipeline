@@ -142,6 +142,7 @@ FRED_SERIES = {
     "JTSQUR": "JOLTS離職率(%)",
     "DGS1": "1 年期國債收益率",
     "DGS2": "2 年期國債收益率",
+    "DGS5": "5 年期國債收益率",
     "DGS10": "10 年期國債收益率",
     "DGS30": "30年期國債收益率",
     "T10Y2Y": "10-2 年利差 (收益率曲線)",
@@ -735,6 +736,12 @@ def fetch_yahoo_futures():
         "ZM=F": "豆粕期貨",
         "CT=F": "棉花期貨",
         "SB=F": "糖期貨",
+        # 外匯
+        "EURUSD=X": "歐元/美元",
+        "USDJPY=X": "美元/日元",
+        "CNH=X": "美元/離岸人民幣",
+        # 波動率
+        "^VIX": "VIX恐慌指數",
     }
     
     for sym, name in symbols.items():

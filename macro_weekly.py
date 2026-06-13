@@ -34,6 +34,23 @@ def gv_all(df, kw):
         return []
     return list(zip(sub[val_col].tolist(), sub["日期"].tolist()))
 
+def gv_yf(df, code):
+    """从yahoo_futures取某symbol最新价，返回(价格, 日期)"""
+    if df.empty or "代碼" not in df.columns:
+        return None, None
+    sub = df[df["代碼"] == code]
+    if sub.empty:
+        return None, None
+    row = sub.iloc[0]
+    return row.get("最新價"), row.get("日期")
+
+def gv_vix(df):
+    """从vix_data取最新VIX价格"""
+    if df.empty or "价格" not in df.columns:
+        return None, None
+    row = df.iloc[0]
+    return row["价格"], row.get("报告日期", "")
+
 def fmt_val(v, kind="number"):
     """数值格式化"""
     if v is None:
@@ -198,6 +215,8 @@ def compute_scores(fred):
 
 def report():
     fred = load_csv("fred_indicators")
+    yf = load_csv("yahoo_futures")
+    vix_df = load_csv("vix_data")
 
     lines = []
     lines.append("# \U0001f30d 全球宏观周度研究报告")
@@ -259,11 +278,14 @@ def report():
     # 实际利率
     tips5, _ = gv(fred, "5年期TIPS")
     # 美元
-    # 主流非美货币 - 从FRED取
-    eurusd, _ = gv(fred, "歐元")
-    usdjpy, _ = gv(fred, "日圓")
-    usdcnh, _ = gv(fred, "人民幣")
-    # 恐慌指数 - VIX可能没有
+    # 主流非美货币 - 从Yahoo读取
+    eurusd, _ = gv_yf(yf, "EURUSD=X")
+    usdjpy, _ = gv_yf(yf, "USDJPY=X")
+    usdcnh, _ = gv_yf(yf, "CNH=X")
+    # 恐慌指数 - 从vix_data/yahoo_futures读取
+    vix_val, vix_date = gv_yf(yf, "^VIX")
+    if vix_val is None:
+        vix_val, vix_date = gv_vix(vix_df)
     # 境内外资金利率
     libor, _ = gv(fred, "Libor")
     # 人民币汇率
@@ -276,10 +298,10 @@ def report():
         ("30Y美债收益率", fmt_val(dgs30, "rate") if dgs30 is not None else "—", "—", "—", "FRED"),
         ("TIPS实际利率", fmt_val(tips, "rate") if tips is not None else "—", "—", "—", "FRED"),
         ("美元指数", fmt_val(dxy, "index") if dxy is not None else "—", "—", "—", "FRED"),
-        ("欧元/美元", fmt_val(eurusd) if eurusd is not None else "—", "—", "—", "FRED"),
-        ("美元/日元", fmt_val(usdjpy) if usdjpy is not None else "—", "—", "—", "FRED"),
-        ("美元/离岸人民币", fmt_val(cnh) if cnh is not None else "—", "—", "—", "FRED"),
-        ("VIX恐慌指数", "—", "—", "—", "CBOE"),
+        ("欧元/美元", fmt_val(eurusd) if eurusd is not None else "—", "—", "—", "Yahoo"),
+        ("美元/日元", fmt_val(usdjpy) if usdjpy is not None else "—", "—", "—", "Yahoo"),
+        ("美元/离岸人民币", fmt_val(usdcnh) if usdcnh is not None else "—", "—", "—", "Yahoo"),
+        ("VIX恐慌指数", fmt_val(vix_val, "index") if vix_val is not None else "—", "—", "—", "Yahoo/VIX"),
         ("联邦基金利率", fmt_val(ff, "rate") if ff is not None else "—", "—", "—", "FRED"),
     ]
     for row in rows2:

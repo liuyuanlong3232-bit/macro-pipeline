@@ -2,12 +2,13 @@
 """
 能源周报生成器 - 按公众号模板
 """
-import os, re, json
+import os, re, json, requests
 from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 import pandas as pd
 load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
+EIA_API_KEY = os.getenv("EIA_API_KEY")
 DATA_DIR = Path.home() / "hermes-macro-data"
 TODAY = datetime.now().strftime("%Y-%m-%d")
 
@@ -24,6 +25,83 @@ def gv(df, kw):
             if not sub.empty:
                 return str(sub.iloc[0][vc]), str(sub.iloc[0].get("日期",""))
     return None, None
+
+def fetch_eia_energy():
+    """通过EIA v2 API实时获取能源库存/产量/开工率/天然气数据"""
+    if not EIA_API_KEY:
+        print("EIA_API_KEY未设置")
+        return {}
+    results = {}
+    def _get(base_url, facets, length=3):
+        facet_parts = []
+        for k, v in facets.items():
+            for val in v if isinstance(v, list) else [v]:
+                facet_parts.append(f"&facets[{k}][]={val}")
+        url = (f"{base_url}?api_key={EIA_API_KEY}"
+               f"&frequency=weekly&data[0]=value"
+               f"{''.join(facet_parts)}"
+               f"&sort[0][column]=period&sort[0][direction]=desc&length={length}")
+        r = requests.get(url, timeout=20)
+        if r.status_code != 200:
+            return []
+        return r.json().get("response", {}).get("data", [])
+    try:
+        # 1. 商业原油库存 (WCESTUS1 = Ending Stocks Excluding SPR)
+        items = _get("https://api.eia.gov/v2/petroleum/stoc/wstk/data",
+                     {"series": ["WCESTUS1"]})
+        if items:
+            results["crude_stocks"] = float(items[0]["value"])
+            results["crude_stocks_period"] = items[0]["period"]
+            results["crude_stocks_chg"] = float(items[0]["value"]) - float(items[1]["value"]) if len(items) > 1 else 0
+        # 2. 战略石油储备 (WCSSTUS1)
+        items = _get("https://api.eia.gov/v2/petroleum/stoc/wstk/data",
+                     {"series": ["WCSSTUS1"]})
+        if items:
+            results["spr_stocks"] = float(items[0]["value"])
+            results["spr_stocks_period"] = items[0]["period"]
+            results["spr_stocks_chg"] = float(items[0]["value"]) - float(items[1]["value"]) if len(items) > 1 else 0
+        # 3. 库欣库存 (duoarea=YCUOK)
+        items = _get("https://api.eia.gov/v2/petroleum/stoc/wstk/data",
+                     {"duoarea": ["YCUOK"], "product": ["EPC0"], "process": ["SAX"]})
+        if items:
+            results["cushing_stocks"] = float(items[0]["value"])
+            results["cushing_stocks_period"] = items[0]["period"]
+            results["cushing_stocks_chg"] = float(items[0]["value"]) - float(items[1]["value"]) if len(items) > 1 else 0
+        # 4. 美国原油产量 (MCRFPUS2, monthly)
+        url4 = (f"https://api.eia.gov/v2/petroleum/crd/crpdn/data/?api_key={EIA_API_KEY}"
+                f"&frequency=monthly&data[0]=value"
+                f"&facets[series][]=MCRFPUS2"
+                f"&sort[0][column]=period&sort[0][direction]=desc&length=3")
+        r4 = requests.get(url4, timeout=20)
+        if r4.status_code == 200:
+            items = r4.json().get("response", {}).get("data", [])
+            if items:
+                results["production"] = float(items[0]["value"])
+                results["production_period"] = items[0]["period"]
+                results["production_chg"] = float(items[0]["value"]) - float(items[1]["value"]) if len(items) > 1 else 0
+        # 5. 炼厂开工率 (WPULEUS3)
+        items = _get("https://api.eia.gov/v2/petroleum/pnp/wiup/data",
+                     {"series": ["WPULEUS3"]})
+        if items:
+            results["refinery_util"] = float(items[0]["value"])
+            results["refinery_util_period"] = items[0]["period"]
+            results["refinery_util_chg"] = float(items[0]["value"]) - float(items[1]["value"]) if len(items) > 1 else 0
+        # 6. 天然气库存 (NW2_EPG0_SWO_R48_BCF = Lower 48 Working Gas)
+        items = _get("https://api.eia.gov/v2/natural-gas/stor/wkly/data",
+                     {"series": ["NW2_EPG0_SWO_R48_BCF"]})
+        if items:
+            results["ng_storage"] = float(items[0]["value"])
+            results["ng_storage_period"] = items[0]["period"]
+            results["ng_storage_chg"] = float(items[0]["value"]) - float(items[1]["value"]) if len(items) > 1 else 0
+    except Exception as e:
+        print(f"fetch_eia_energy error: {e}")
+    return results
+
+def fmt_chg(chg):
+    """格式化变化量，帶箭頭"""
+    if chg is None: return "—"
+    arrow = "↑" if chg > 0 else "↓" if chg < 0 else "→"
+    return f"{arrow} {abs(chg):.0f}"
 
 def report():
     yahoo = load("yahoo_futures")
@@ -80,16 +158,32 @@ def report():
     lines.append(f"| 布伦特-WTI价差 | — | {spread} | 计算 |")
     lines.append("")
     
+    # EIA实时数据
+    eia = fetch_eia_energy()
+    eia_ok = bool(eia.get("crude_stocks"))
+
     # 2.2 EIA库存
     lines.append("### 2.2 EIA库存数据")
     lines.append("")
-    lines.append("> 注：EIA库存数据每周三公布，本周数据待更新")
+    if eia_ok:
+        lines.append(f"> 数据更新至 {eia.get('crude_stocks_period','—')} | 来源: EIA Weekly Status Report")
+    else:
+        lines.append("> 注：EIA库存数据每周三公布，本周数据暂未获取")
     lines.append("")
     lines.append("| 指标 | 最新值 | 周变化 | 来源 |")
     lines.append("|------|--------|--------|------|")
-    lines.append("| 商业原油库存 | 待更新 | — | EIA |")
-    lines.append("| 战略石油储备(SPR) | 待更新 | — | EIA |")
-    lines.append("| 库欣库存 | 待更新 | — | EIA |")
+    if eia_ok:
+        cs = f"{eia['crude_stocks']:,.0f} 千桶"
+        cs_chg = fmt_chg(eia.get('crude_stocks_chg'))
+        spr = f"{eia['spr_stocks']:,.0f} 千桶"
+        spr_chg = fmt_chg(eia.get('spr_stocks_chg'))
+        cus = f"{eia['cushing_stocks']:,.0f} 千桶"
+        cus_chg = fmt_chg(eia.get('cushing_stocks_chg'))
+    else:
+        cs = cs_chg = spr = spr_chg = cus = cus_chg = "待更新"
+    lines.append(f"| 商业原油库存 | {cs} | {cs_chg} | EIA |")
+    lines.append(f"| 战略石油储备(SPR) | {spr} | {spr_chg} | EIA |")
+    lines.append(f"| 库欣库存 | {cus} | {cus_chg} | EIA |")
     lines.append("")
     
     # 2.3 供需
@@ -97,9 +191,15 @@ def report():
     lines.append("")
     lines.append("| 指标 | 最新值 | 来源 |")
     lines.append("|------|--------|------|")
-    lines.append("| 美国原油产量 | 待更新 | EIA |")
-    lines.append("| 炼厂开工率 | 待更新 | EIA |")
-    lines.append("| 钻机数量 | 待更新 | 贝克休斯 |")
+    if eia_ok:
+        prod = f"{eia['production']:,.0f} 千桶/日 ({eia.get('production_period','')})"
+        ru = f"{eia['refinery_util']:.1f}%"
+    else:
+        prod = "待更新"
+        ru = "待更新"
+    lines.append(f"| 美国原油产量 | {prod} | EIA |")
+    lines.append(f"| 炼厂开工率 | {ru} | EIA |")
+    lines.append(f"| 钻机数量 | 待爬取（Baker Hughes） | 贝克休斯 |")
     lines.append("")
     
     # 三、天然气
@@ -111,7 +211,12 @@ def report():
     lines.append(f"| 指标 | 最新值 | 来源 |")
     lines.append(f"|------|--------|------|")
     lines.append(f"| 亨利港 | ${ng_p or '—'} | Yahoo |")
-    lines.append(f"| 库存 | 待更新 | EIA |")
+    if eia_ok:
+        ng = f"{eia['ng_storage']:,.0f} BCF"
+        ng_chg = fmt_chg(eia.get('ng_storage_chg'))
+        lines.append(f"| 库存(Lower 48) | {ng} | {ng_chg} | EIA |")
+    else:
+        lines.append(f"| 库存 | 待更新 | EIA |")
     lines.append("")
     lines.append("### 3.2 欧洲市场")
     lines.append("")
@@ -231,7 +336,7 @@ def report():
     
     # 结尾
     lines.append("---")
-    lines.append(f"**数据来源**: Yahoo Finance、CFTC COT、AGSI+、EIA，截至{TODAY}")
+    lines.append(f"**数据来源**: Yahoo Finance、CFTC COT、AGSI+、EIA API（实时），截至{TODAY}")
     lines.append("**免责声明**: 本文仅为全球能源市场宏观数据与产业动态复盘，不构成任何投资建议。市场有风险，入市需谨慎。")
     
     return "\n".join(lines)
