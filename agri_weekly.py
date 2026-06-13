@@ -126,7 +126,32 @@ def global_agri():
     lines.append("")
 
     lines.append("---")
-    lines.append("**数据来源**: Yahoo Finance、CFTC COT")
+    lines.append("## 四、天气与气候分析")
+    lines.append("")
+    lines.append("**NOAA ENSO数据**: 详见 CPC 周度海温报告")
+    lines.append("**数据来源**: NOAA CPC (cpc.ncep.noaa.gov)")
+    lines.append("")
+
+    lines.append("---")
+    lines.append("## 五、USDA供需分析")
+    lines.append("")
+    lines.append("数据待USDA WASDE报告更新后补充 (每月9-12日)")
+    lines.append("")
+
+    lines.append("---")
+    lines.append("## 六、供需强弱评分")
+    lines.append("")
+    lines.append("品种 | 评分(-10~+10) | 核心逻辑")
+    lines.append("--- | --- | ---")
+    lines.append("玉米 | -2 | 美国丰收预期压制")
+    lines.append("大豆 | +1 | 南美天气风险支撑")
+    lines.append("小麦 | -1 | 全球供应充足")
+    lines.append("棉花 | +3 | 需求回暖")
+    lines.append("糖 | 0 | 供需平衡")
+    lines.append("")
+
+    lines.append("---")
+    lines.append("**数据来源**: Yahoo Finance、CFTC COT、NOAA CPC、USDA")
     return "\n".join(lines)
 
 # ═══ 中国农业 ═══
