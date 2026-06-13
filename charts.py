@@ -119,9 +119,14 @@ def chart_gold_price():
         padding = (ymax - ymin) * 0.15
         ax.set_ylim(ymin - padding, ymax + padding)
         
-        # 标注首尾值
-        ax.text(0, y[0], f"${y[0]:,.0f}", fontsize=9, va="bottom", color="#7F8C8D")
-        ax.text(len(y)-1, y[-1], f"${y[-1]:,.0f}", fontsize=11, va="bottom", color=col, fontweight="bold")
+        # 标注首尾值 - 统一位置
+        # 起始值：靠右下方
+        ax.text(0, y[0], f"${y[0]:,.0f}", fontsize=9, ha="left", va="top",
+                color="#7F8C8D")
+        # 最新值：靠左上方（用bbox背景框防重叠）
+        ax.text(len(y)-1, y[-1], f"${y[-1]:,.0f}", fontsize=11, ha="right", va="bottom",
+                color=col, fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor=col, alpha=0.8))
         
         ax.grid(True, alpha=0.2)
         ax.spines["top"].set_visible(False)
