@@ -121,7 +121,8 @@ def report():
     lines.append(f"| COMEX白银期货 | ${silver_f} | → 跟随震荡 |" if silver_f else "| COMEX白银期货 | — | → 跟随震荡 |")
     lines.append(f"| GLD ETF | ${gld} | → 仓位稳定 |" if gld else "| GLD ETF | — | → 仓位稳定 |")
     lines.append(f"| SLV ETF | ${slv} | → 中性 |" if slv else "| SLV ETF | — | → 中性 |")
-    lines.append(f"| 金银比 | {ratio}:1 | — |" if ratio else "| 金银比 | — | — |")
+    ratio_dir = "↑ 白银弱于黄金" if ratio and float(ratio) > 80 else ("↓ 白银强于黄金" if ratio and float(ratio) < 40 else "→ 中性区间")
+    lines.append(f"| 金银比 | {ratio}:1 | {ratio_dir} |" if ratio else "| 金银比 | — | — |")
     
     gold_cot = cot[cot["品種"].str.contains("黄金", na=False)] if cot is not None and "品種" in cot.columns else pd.DataFrame()
     if not gold_cot.empty:
@@ -141,8 +142,8 @@ def report():
     lines.append("")
     lines.append("| 指标 | 最新价 | 周环比 | 周均价 | 数据来源 |")
     lines.append("|------|--------|:-----:|:-----:|---------|")
-    lines.append(f"| 黄金现货 | ${gold_s} | — | — | Alpha Vantage |" if gold_s else "| 黄金现货 | — | — | — | Alpha Vantage |")
-    lines.append(f"| 白银现货 | ${silver_s} | — | — | Alpha Vantage |" if silver_s else "| 白银现货 | — | — | — | Alpha Vantage |")
+    lines.append(f"| 黄金现货 | ${gold_s} | {gold_wow} | {gold_avg} | Alpha Vantage |" if gold_s else "| 黄金现货 | — | — | — | Alpha Vantage |")
+    lines.append(f"| 白银现货 | ${silver_s} | {silver_wow} | {silver_avg} | Alpha Vantage |" if silver_s else "| 白银现货 | — | — | — | Alpha Vantage |")
     lines.append(f"| COMEX黄金期货 | ${gold_f} | {gold_wow} | {gold_avg} | Yahoo Finance |" if gold_f else "| COMEX黄金期货 | — | — | — | Yahoo Finance |")
     lines.append(f"| COMEX白银期货 | ${silver_f} | {silver_wow} | {silver_avg} | Yahoo Finance |" if silver_f else "| COMEX白银期货 | — | — | — | Yahoo Finance |")
     if gold_s and gold_f:
