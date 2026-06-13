@@ -343,6 +343,99 @@ def fetch_bdi(use_proxy=True):
 
 
 # ═══════════════════════════════════════════════════════════
+# 5. USDA Export Grain Inspections — 美湾出口数据
+# ═══════════════════════════════════════════════════════════
+def fetch_usda_export_inspections(use_proxy=True):
+    """
+    从 USDA AMS 获取周度出口谷物检验报告 (wa_gr101.txt)。
+    返回 dict:
+      {
+        "date": "2026-06-04",
+        "week_ending": "Jun 04, 2026",
+        "gulf_total_mt": 1473562,
+        "gulf_corn_mt": 1126896,
+        "gulf_soybeans_mt": 214484,
+        "gulf_wheat_mt": 132182,
+        "us_total_mt": 2651639,
+        "source": "USDA FGIS Export Grain Inspections"
+      }
+    失败返回 None
+    """
+    try:
+        r = requests.get(
+            "https://www.ams.usda.gov/mnreports/wa_gr101.txt",
+            timeout=20,
+            headers=UA,
+        )
+        if r.status_code != 200:
+            return None
+
+        text = r.text
+
+        # 提取报告日期: look for "WEEK ENDING" line
+        date_match = re.search(r'WEEK ENDING\s+(\w+\s+\d+,\s+\d{4})', text)
+        week_ending = date_match.group(1) if date_match else ""
+
+        # 提取谷物总量行 (first summary table): "Total" row
+        # Pattern: Total       2,640,163   2,839,235
+        total_match = re.search(r'Total\s+([\d,]+)\s+([\d,]+)', text)
+        us_total = int(total_match.group(1).replace(",", "")) if total_match else 0
+
+        # 提取 BY REGION AND PORT AREA 表格中 GULF 区域 subtotal
+        # 寻找 "GULF" 区域 + SUBTOTAL 行
+        # Format: GULF      ... SUBTOTAL    132,182  1,025,897  100,999       0   214,484        0  1,473,562
+        # The GULF subtotal row has columns: WHEAT, CORN YELLOW, CORN WHITE, SORGHUM, SOYBEANS, CANOLA, TOTALS
+        gulf_pattern = r'GULF\s+.*?SUBTOTAL\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)'
+        gulf_m = re.search(gulf_pattern, text, re.DOTALL)
+        if gulf_m:
+            gulf_wheat = int(gulf_m.group(1).replace(",", ""))
+            gulf_corn_yellow = int(gulf_m.group(2).replace(",", ""))
+            gulf_corn_white = int(gulf_m.group(3).replace(",", ""))
+            gulf_corn = gulf_corn_yellow + gulf_corn_white
+            gulf_soybeans = int(gulf_m.group(5).replace(",", ""))
+            gulf_total = int(gulf_m.group(7).replace(",", ""))
+        else:
+            # fallback: sum individual port areas under GULF
+            gulf_total = 0
+            gulf_corn = 0
+            gulf_soybeans = 0
+            gulf_wheat = 0
+            # Try to find GULF section and parse sub-port rows
+            gulf_section = re.search(
+                r'GULF\s+(.+?)SUBTOTAL',
+                text, re.DOTALL
+            )
+            if gulf_section:
+                gulf_text = gulf_section.group(1)
+                # Each line: port_name  numbers...
+                for line in gulf_text.split("\n"):
+                    line = line.strip()
+                    if not line or line.startswith("GULF"):
+                        continue
+                    nums = re.findall(r'[\d,]+', line)
+                    if len(nums) >= 7:
+                        gulf_wheat += int(nums[0].replace(",", ""))
+                        gulf_corn += int(nums[1].replace(",", "")) + int(nums[2].replace(",", ""))
+                        gulf_soybeans += int(nums[4].replace(",", ""))
+                        gulf_total += int(nums[6].replace(",", ""))
+
+        result = {
+            "date": week_ending,
+            "gulf_total_mt": gulf_total,
+            "gulf_corn_mt": gulf_corn,
+            "gulf_soybeans_mt": gulf_soybeans,
+            "gulf_wheat_mt": gulf_wheat,
+            "us_total_mt": us_total,
+            "source": "USDA FGIS Export Grain Inspections",
+        }
+        return result
+
+    except Exception as e:
+        print(f"[USDA Export Inspections] Error: {e}")
+        return None
+
+
+# ═══════════════════════════════════════════════════════════
 # 测试入口
 # ═══════════════════════════════════════════════════════════
 if __name__ == "__main__":

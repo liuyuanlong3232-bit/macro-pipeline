@@ -199,7 +199,16 @@ def report():
         ru = "待更新"
     lines.append(f"| 美国原油产量 | {prod} | EIA |")
     lines.append(f"| 炼厂开工率 | {ru} | EIA |")
-    lines.append(f"| 钻机数量 | 待爬取（Baker Hughes） | 贝克休斯 |")
+    
+    # Baker Hughes钻机数（VPS直连更稳定）
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from data_scrapers import fetch_baker_hughes
+    bh = fetch_baker_hughes()
+    if bh:
+        lines.append(f"| 钻机数量 | US {bh['us_count']} + Canada {bh['canada_count']} = {bh['na_total']} ({bh['date']}) | 贝克休斯 |")
+    else:
+        lines.append(f"| 钻机数量 | 待手动查 | 贝克休斯 |")
     lines.append("")
     
     # 三、天然气
