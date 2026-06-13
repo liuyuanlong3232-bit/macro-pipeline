@@ -53,55 +53,79 @@ def send_report(filepath, chart_type=""):
 <html><head><meta charset="utf-8"></head><body style="font-family: 'Microsoft YaHei', sans-serif; color: #333; max-width: 800px; margin: 0 auto; padding: 20px;">
 <div style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">""")
 
-    # 图表区域
+    # 图表区域 - 按报告类型
     chart_section = ""
     if chart_type == "macro" or chart_type == "":
-        # 宏观周报有FRED走势图
         fred_chart = CHART_DIR / "fred_trends.png"
         if fred_chart.exists():
             b64 = img_to_base64(fred_chart)
-            chart_section += f'<img src="data:image/png;base64,{b64}" style="width:100%;max-width:700px;border-radius:4px;margin:10px 0;"><br>'
-            html_parts.append(f"""<div style="margin: 15px 0;"><h3 style="color:#2C3E50;border-left:4px solid #3498DB;padding-left:10px;">📊 美国关键宏观指标走势</h3>{chart_section}</div>""")
+            html_parts.append(f"""<div style="margin:15px 0;"><h3 style="color:#2C3E50;border-left:4px solid #3498DB;padding-left:10px;">📊 美国关键宏观指标走势（15年）</h3><img src="data:image/png;base64,{b64}" style="width:100%;max-width:700px;border-radius:4px;margin:10px 0;"></div>""")
 
-    if chart_type in ("metals", "energy", "") or chart_type == "":
-        # COT图表
-        for name, title_text in [("cot_net", "COT投机净持仓排行榜"), ("cot_index", "COT Index一览"), ("cot_long_short", "COT多空对比")]:
+    if chart_type in ("metals",):
+        for name, title_text in [
+            ("gold_price", "黄金走势（15年）"),
+            ("silver_price", "白银走势（15年均线）"),
+            ("gold_silver_ratio", "金银比（15年）"),
+            ("cot_net_history", "黄金COT投机净持仓历史"),
+            ("cot_net", "COT投机净持仓排行榜"),
+            ("cot_index", "COT Index一览"),
+        ]:
             p = CHART_DIR / f"{name}.png"
             if p.exists():
                 b64 = img_to_base64(p)
-                html_parts.append(f"""<div style="margin: 15px 0;"><h3 style="color:#2C3E50;border-left:4px solid #E67E22;padding-left:10px;">📊 {title_text}</h3><img src="data:image/png;base64,{b64}" style="width:100%;max-width:700px;border-radius:4px;margin:10px 0;"></div>""")
+                html_parts.append(f"""<div style="margin:15px 0;"><h3 style="color:#2C3E50;border-left:4px solid #E67E22;padding-left:10px;">📊 {title_text}</h3><img src="data:image/png;base64,{b64}" style="width:100%;max-width:700px;border-radius:4px;margin:10px 0;"></div>""")
 
-    # Markdown内容转HTML
+    if chart_type in ("energy",):
+        for name, title_text in [("cot_net", "COT投机净持仓"), ("cot_index", "COT Index")]:
+            p = CHART_DIR / f"{name}.png"
+            if p.exists():
+                b64 = img_to_base64(p)
+                html_parts.append(f"""<div style="margin:15px 0;"><h3 style="color:#2C3E50;border-left:4px solid #27AE60;padding-left:10px;">📊 {title_text}</h3><img src="data:image/png;base64,{b64}" style="width:100%;max-width:700px;border-radius:4px;margin:10px 0;"></div>""")
+
+    # Markdown内容转HTML - 精简版，有图就不需要完整表格了
     html_body = ""
-    in_table = False
-    for line in lines:
+    skip_next_n = 0
+    for i, line in enumerate(lines):
+        if skip_next_n > 0:
+            skip_next_n -= 1
+            continue
         stripped = line.strip()
-        if stripped.startswith("# "):
-            continue  # 标题已在邮件主题中
-        elif stripped.startswith("## "):
-            html_body += f'<h3 style="color:#2C3E50;margin-top:25px;border-bottom:1px solid #eee;padding-bottom:8px;">{stripped[3:]}</h3>\n'
-        elif stripped.startswith("### "):
-            html_body += f'<h4 style="color:#E67E22;margin-top:20px;">{stripped[4:]}</h4>\n'
-        elif stripped.startswith("| "):
-            if not in_table:
-                in_table = True
-                html_body += '<table style="border-collapse:collapse;width:100%;margin:12px 0;font-size:13px;">\n'
-            # 检测表头分隔行
-            if all(c in stripped for c in ["-"]):
-                continue
-            cells = [c.strip() for c in stripped.split("|")[1:-1]]
-            tag = "th"
-            row_html = "<tr>" + "".join(f'<{tag} style="border:1px solid #ddd;padding:8px;background:#f8f9fa;text-align:center;">{c}</{tag}>' for c in cells) + "</tr>\n"
-            html_body += row_html
-        else:
-            if in_table:
-                html_body += "</table>\n"
-                in_table = False
-            if stripped:
-                html_body += f'<p style="line-height:1.6;">{stripped}</p>\n'
 
-    if in_table:
-        html_body += "</table>\n"
+        # 跳过标题（已在邮件主题）
+        if stripped.startswith("# "):
+            continue
+
+        # 跳过表格分隔行
+        if stripped.startswith("|---") or stripped.startswith("|:---"):
+            continue
+
+        # 跳过整行纯表格线
+        if set(stripped) <= set("|-: "):
+            continue
+
+        # 标题
+        if stripped.startswith("## "):
+            html_body += f'<h3 style="color:#2C3E50;margin-top:22px;border-bottom:1px solid #eee;padding-bottom:6px;">{stripped[3:]}</h3>\n'
+        elif stripped.startswith("### "):
+            html_body += f'<h4 style="color:#E67E22;margin-top:18px;">{stripped[4:]}</h4>\n'
+        elif stripped.startswith("**") and stripped.endswith("**"):
+            # 加粗文本当作小标题
+            html_body += f'<p style="font-weight:bold;margin-top:12px;color:#2C3E50;">{stripped.strip("*")}</p>\n'
+        elif stripped.startswith("| "):
+            # 表格行 → 中文冒号分隔
+            cells = [c.strip() for c in stripped.split("|")[1:-1]]
+            if cells:
+                # 表头行和普通行不一样处理
+                txt = "　　" + "　".join(cells)
+                html_body += f'<p style="font-size:12px;color:#555;margin:2px 0;">{txt}</p>\n'
+        elif stripped.startswith("- "):
+            html_body += f'<li style="margin:3px 0;color:#444;">{stripped[2:]}</li>\n'
+        elif stripped == "---":
+            html_body += '<hr style="border:none;border-top:1px solid #eee;margin:15px 0;">\n'
+        elif stripped == "":
+            html_body += '<br>\n'
+        else:
+            html_body += f'<p style="line-height:1.6;color:#333;font-size:13px;">{stripped}</p>\n'
 
     html_parts.append(f'<div style="margin-top:20px;">{html_body}</div>')
     html_parts.append('</div></body></html>')
