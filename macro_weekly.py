@@ -6,10 +6,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 import pandas as pd
 import akshare as ak
+import tushare as ts
 
 load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
 DATA_DIR = Path.home() / "hermes-macro-data"
 TODAY = datetime.now().strftime("%Y-%m-%d")
+TS_TOKEN = os.getenv("TUSHARE_TOKEN")
 
 def load_csv(name):
     p = DATA_DIR / "csv" / TODAY / f"{name}.csv"
@@ -89,6 +91,26 @@ def fetch_cn_macro():
     except:
         pass
     return result
+
+
+def fetch_social_financing():
+    """Tushare sf_month — 社会融资规模月度数据"""
+    if not TS_TOKEN:
+        return None
+    try:
+        pro = ts.pro_api(TS_TOKEN)
+        df = pro.sf_month(start_m="202501", end_m=datetime.now().strftime("%Y%m"))
+        if df is not None and not df.empty:
+            r = df.iloc[-1]
+            return {
+                "month": r.get("month"),
+                "inc_month": r.get("inc_month"),
+                "inc_cumval": r.get("inc_cumval"),
+                "stk_endval": r.get("stk_endval"),
+            }
+    except Exception as e:
+        print(f"[sf_month] Error: {e}")
+    return None
 
 
 def fmt_val(v, kind="number"):
@@ -239,6 +261,21 @@ def compute_scores(fred):
         cn_notes.append(f"LPR1Y={lpr}%")
     if rrr:
         cn_notes.append(f"存准率{rrr}%")
+    # 社融
+    sf_data = fetch_social_financing()
+    if sf_data and sf_data.get("inc_month"):
+        try:
+            inc = float(sf_data["inc_month"])
+            if inc > 10000:
+                cn_notes.append(f"社融+{inc/10000:.1f}万亿")
+                score_cn += 1
+            elif inc > 5000:
+                cn_notes.append(f"社融+{inc/10000:.1f}万亿")
+            else:
+                cn_notes.append(f"社融+{inc/10000:.1f}万亿")
+                score_cn -= 1
+        except:
+            pass
     cn_reasons.append("；".join(cn_notes) if cn_notes else "中国宏观数据暂缺")
     score_us = max(-10, min(10, score_us))
     score_risk = max(-10, min(10, score_risk))
@@ -430,11 +467,22 @@ def report():
     lpr5y = cn_data.get("lpr5y")
     rrr = cn_data.get("rrr_large")
     shibor_1w = cn_data.get("shibor_1w")
+    
+    # 社融
+    sf = fetch_social_financing()
+    sf_str = "—"
+    if sf and sf.get("inc_month"):
+        try:
+            im = float(sf["inc_month"])
+            sk = sf.get("stk_endval", "—")
+            sf_str = f"{im:,.0f}亿(月增量), 存{sk}万亿"
+        except:
+            sf_str = "—"
 
     rows5 = [
         ("MLF利率(锚-LPR1Y)", f"{lpr1y:.1f}%" if lpr1y else "—", "—", "AKShare"),
         ("LPR5Y", f"{lpr5y:.1f}%" if lpr5y else "—", "—", "AKShare"),
-        ("社融高频", "—", "—", "Tushare sf_month待积分升级(需2000分)"),
+        ("社融高频", sf_str, "—", "Tushare sf_month"),
         ("人民币跨境收付", "—", "—", "Wind"),
         ("国内流动性(存准率)", f"{rrr:.1f}%" if rrr else "—", "—", "AKShare"),
         ("SHIBOR 1W", f"{shibor_1w:.2f}%" if shibor_1w else "—", "—", "AKShare"),
