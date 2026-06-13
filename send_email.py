@@ -82,58 +82,98 @@ def send_report(filepath, chart_type=""):
                 b64 = img_to_base64(p)
                 html_parts.append(f"""<div style="margin:15px 0;"><h3 style="color:#2C3E50;border-left:4px solid #27AE60;padding-left:10px;">📊 {title_text}</h3><img src="data:image/png;base64,{b64}" style="width:100%;max-width:700px;border-radius:4px;margin:10px 0;"></div>""")
 
-    # Markdown内容转HTML - 有图就精简文字，去掉所有表格符号
+    # Markdown内容转HTML - 表格转HTML <table>，其他保持精简
     html_body = ""
-    skip_next_n = 0
+    table_rows = []  # 暂存表格行
+    in_table = False
+
+    def flush_table():
+        nonlocal in_table, table_rows
+        if not table_rows:
+            return ""
+        html = '<table style="border-collapse:collapse;width:100%;margin:10px 0;font-size:12px;">\n'
+        for is_header, cells in table_rows:
+            tag = "th" if is_header else "td"
+            bg = "#f8f9fa" if is_header else "#fff"
+            fw = "bold" if is_header else "normal"
+            row = "<tr>"
+            for c in cells:
+                row += f'<{tag} style="border:1px solid #ddd;padding:6px 8px;background:{bg};font-weight:{fw};text-align:center;">{c}</{tag}>'
+            row += f"</tr>\n"
+            html += row
+        html += "</table>\n"
+        table_rows = []
+        in_table = False
+        return html
+
     for i, line in enumerate(lines):
-        if skip_next_n > 0:
-            skip_next_n -= 1
-            continue
         stripped = line.strip()
 
-        # 跳过标题（已在邮件主题）
-        if stripped.startswith("# "):
+        # 标题行（跳过#标题，已在邮件主题）
+        if stripped.startswith("# ") and not stripped.startswith("## "):
             continue
 
-        # 跳过表格分隔行和下划线行
-        if stripped.startswith("|---") or stripped.startswith("|:---") or stripped.startswith("___"):
+        # 检测表格行：以|开头
+        if stripped.startswith("|"):
+            # 跳过表格分隔行 (|---|)
+            if set(stripped.replace("|", "").replace("-", "").replace(":", "").strip()) <= set(" "):
+                continue
+            cells = [c.strip() for c in stripped.split("|")[1:-1]]
+            if not cells:
+                continue
+            # 判断是否是表头行（上一行是分隔行 or 当前行包含---）
+            is_header = False
+            if i > 0:
+                prev = lines[i-1].strip()
+                # 如果上一行是分隔行，当前行是数据行；如果上上行是分隔行，当前行是表头
+                is_sep = lambda s: set(s.replace("|", "").replace("-", "").replace(":", "").strip()) <= set(" ") and "|" in s
+                if is_sep(prev):
+                    is_header = False
+                elif i > 1 and is_sep(lines[i-2].strip()):
+                    is_header = True
+                else:
+                    # 第一张表格：第一行后通常跟着分隔行
+                    if not in_table and i+1 < len(lines) and is_sep(lines[i+1].strip()):
+                        is_header = True
+                    else:
+                        is_header = False
+            else:
+                is_header = bool(i == 0)
+
+            table_rows.append((is_header, cells))
+            in_table = True
             continue
-
-        # 跳过整行纯表格线
-        if set(stripped) <= set("|-: "):
-            continue
-
-        # 统一去除行首的|符号（Markdown表格处理）
-        raw = stripped
-        while raw.startswith("|"):
-            raw = raw[1:].strip()
-        while raw.endswith("|"):
-            raw = raw[:-1].strip()
-        raw = raw.strip()
-
-        # 跳过全是分隔符的行
-        if not raw or set(raw) <= set("-: "):
-            continue
-
-        # 标题
-        if raw.startswith("## "):
-            html_body += f'<h3 style="color:#2C3E50;margin-top:22px;border-bottom:1px solid #eee;padding-bottom:6px;">{raw[3:]}</h3>\n'
-        elif raw.startswith("### "):
-            html_body += f'<h4 style="color:#E67E22;margin-top:18px;">{raw[4:]}</h4>\n'
-        elif raw.startswith("**") and raw.endswith("**"):
-            html_body += f'<p style="font-weight:bold;margin-top:12px;color:#2C3E50;">{raw.strip("*")}</p>\n'
-        elif raw.startswith("- ") or raw.startswith("* "):
-            html_body += f'<p style="margin:3px 0;color:#444;padding-left:15px;">{raw[2:]}</p>\n'
-        elif raw.startswith("> "):
-            html_body += f'<p style="margin:5px 0;color:#888;font-style:italic;padding-left:10px;border-left:3px solid #ddd;">{raw[2:]}</p>\n'
-        elif raw == "---":
-            html_body += '<hr style="border:none;border-top:1px solid #eee;margin:15px 0;">\n'
-        elif raw == "":
-            html_body += '<br>\n'
         else:
-            # 普通文本，替换所有残留的|为中文空格
-            clean = raw.replace("|", "　")
-            html_body += f'<p style="line-height:1.6;color:#333;font-size:13px;margin:3px 0;">{clean}</p>\n'
+            # 非表格行：先flush暂存的表格
+            if in_table:
+                html_body += flush_table()
+
+        # 其他行类型
+        if stripped.startswith("## "):
+            text = stripped[3:].strip()
+            html_body += f'<h3 style="color:#2C3E50;margin-top:22px;border-bottom:1px solid #eee;padding-bottom:6px;font-size:15px;">{text}</h3>\n'
+        elif stripped.startswith("### "):
+            html_body += f'<h4 style="color:#E67E22;margin-top:18px;font-size:13px;">{stripped[4:]}</h4>\n'
+        elif stripped.startswith("**") and stripped.endswith("**"):
+            html_body += f'<p style="font-weight:bold;margin-top:12px;color:#2C3E50;font-size:13px;">{stripped.strip("*")}</p>\n'
+        elif stripped.startswith("- ") or stripped.startswith("* "):
+            html_body += f'<p style="margin:3px 0;color:#444;padding-left:15px;font-size:12px;">{stripped[2:]}</p>\n'
+        elif stripped.startswith("> "):
+            html_body += f'<p style="margin:5px 0;color:#888;font-style:italic;padding-left:10px;border-left:3px solid #ddd;font-size:12px;">{stripped[2:]}</p>\n'
+        elif stripped == "---":
+            html_body += '<hr style="border:none;border-top:1px solid #eee;margin:15px 0;">\n'
+        elif stripped == "":
+            html_body += '<br>\n'
+        elif stripped.startswith("```"):
+            # 跳过代码块
+            continue
+        else:
+            # 普通段落
+            html_body += f'<p style="line-height:1.6;color:#333;font-size:13px;margin:5px 0;">{stripped}</p>\n'
+
+    # 最后的表格
+    if in_table:
+        html_body += flush_table()
 
     html_parts.append(f'<div style="margin-top:20px;">{html_body}</div>')
     html_parts.append('</div></body></html>')
