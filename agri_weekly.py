@@ -272,10 +272,25 @@ def global_agri():
     # 尝试从已有数据推算部分指标
     # 用COT持仓变化作为资金面参考，价格变化作为需求参考
     env_items_data = []
-    # 美产区周度降水 — 无直接数据
-    env_items_data.append(("美产区周度降水", "—", "—", "关注NOAA 6-10天展望"))
-    # 美作物优良率 — 当前6月 USDA未发布最新
-    env_items_data.append(("美作物优良率", "—", "—", "USDA周报待更新"))
+    # 从data_scrapers获取实时数据
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from data_scrapers import fetch_usda_crop_condition, fetch_bdi, fetch_openmeteo_precip
+    
+    # 美产区周度降水 — Open-Meteo免费API
+    precip = fetch_openmeteo_precip()
+    if precip and precip.get("summary"):
+        env_items_data.append(("美产区周度降水", f"{precip['summary']}", f"—", f"Open-Meteo 7日预报"))
+    else:
+        env_items_data.append(("美产区周度降水", "—", "—", "关注NOAA 6-10天展望"))
+    # 美作物优良率 — USDA Crop Progress
+    usda = fetch_usda_crop_condition()
+    if usda and usda.get("corn"):
+        cc = usda["corn"]
+        sc = usda["soybeans"]
+        env_items_data.append((f"美作物优良率", f"玉米G/E {cc['good_excellent']}% 大豆G/E {sc['good_excellent']}%", f"—", f"USDA周报 {usda.get('date','')}"))
+    else:
+        env_items_data.append(("美作物优良率", "—", "—", "USDA周报待更新"))
     # USDA出口销售数据
     env_items_data.append(("USDA出口销售数据", "—", "—", "关注周度USDA出口检验报告"))
     # 美湾库存
@@ -286,8 +301,12 @@ def global_agri():
     env_items_data.append(("黑海粮食协议边际", "—", "—", "—"))
     # 海外生物柴油需求
     env_items_data.append(("海外生物柴油需求", "—", "—", "关注RFS政策及生柴掺混报价"))
-    # 国际海运运价
-    env_items_data.append(("国际海运运价", "—", "—", "关注波罗的海干散货指数BDI"))
+    # 国际海运运价 — BDI波罗的海干散货运价
+    bdi = fetch_bdi()
+    if bdi:
+        env_items_data.append((f"国际海运运价", f"BDI {bdi['price']} ({bdi['change_pct']:+.2f}%)", f"前收{bdi['prevClose']}", "波罗的海干散货指数"))
+    else:
+        env_items_data.append(("国际海运运价", "—", "—", "关注波罗的海干散货指数BDI"))
 
     for name, val, wv, impact in env_items_data:
         lines.append(f"{name} | {val} | {wv} | {impact}")
