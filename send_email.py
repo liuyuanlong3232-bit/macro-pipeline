@@ -115,20 +115,30 @@ def send_report(filepath, chart_type=""):
 
         # 检测表格行：包含|且不纯粹是分隔符
         is_table_row = False
+
+        # 先检查是不是分隔行 (|------|------| or --- | --- | ---)
+        stripped_no_pipe = stripped.replace("|", "").replace("-", "").replace(":", "").strip()
+        if not stripped_no_pipe:
+            if "|" in stripped:
+                is_separator = True
+            else:
+                is_separator = False
+        else:
+            is_separator = False
+
+        if is_separator:
+            continue
+
         if "|" in stripped:
-            # 排除纯分隔行 (---|:---)
             cleaned = stripped.replace("|", "").replace("-", "").replace(":", "").strip()
             if cleaned and len(cleaned) > 2:
-                cells = [c.strip() for c in stripped.split("|")]
-                # 过滤掉空单元格造成的假行
-                real_cells = [c for c in cells if c.strip()]
-                if len(real_cells) >= 2:  # 至少2列才算表格
-                    is_table_row = True
+                pass  # will check cells below
+            cells_raw = [c.strip() for c in stripped.split("|")]
+            real_cells = [c for c in cells_raw if c.strip() and not set(c.strip()) <= set("-: ")]
+            if len(real_cells) >= 2:
+                is_table_row = True
 
         if is_table_row:
-            # 跳过表格分隔行 (|---|)
-            if set(stripped.replace("|", "").replace("-", "").replace(":", "").strip()) <= set(" "):
-                continue
             cells = [c.strip() for c in stripped.split("|")]
             # 如果行首尾有|，去掉首尾的空单元格
             if stripped.startswith("|") and stripped.endswith("|"):
