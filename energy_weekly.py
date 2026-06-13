@@ -200,13 +200,17 @@ def report():
     lines.append(f"| 美国原油产量 | {prod} | EIA |")
     lines.append(f"| 炼厂开工率 | {ru} | EIA |")
     
-    # Baker Hughes钻机数（VPS直连更稳定）
+    # Baker Hughes钻机数（AOGR数据源，无Cloudflare拦截）
     import sys, os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from data_scrapers import fetch_baker_hughes
     bh = fetch_baker_hughes()
     if bh:
-        lines.append(f"| 钻机数量 | US {bh['us_count']} + Canada {bh['canada_count']} = {bh['na_total']} ({bh['date']}) | 贝克休斯 |")
+        oil_s = f"油{bh['oil']}" if bh.get('oil') else ""
+        gas_s = f"气{bh['gas']}" if bh.get('gas') else ""
+        misc_s = f"杂{bh['misc']}" if bh.get('misc') else ""
+        detail = " / ".join(filter(None, [oil_s, gas_s, misc_s]))
+        lines.append(f"| 钻机数量 | US {bh['total']} ({detail}) ({bh['date']}) | 贝克休斯 |")
     else:
         lines.append(f"| 钻机数量 | 待手动查 | 贝克休斯 |")
     lines.append("")

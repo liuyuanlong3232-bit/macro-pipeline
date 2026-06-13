@@ -26,51 +26,131 @@ UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.3
 # ═══════════════════════════════════════════════════════════
 def fetch_baker_hughes(use_proxy=True):
     """
-    从 Baker Hughes 首页爬取北美钻机总数。
-    VPS上直接用curl（Python requests被Cloudflare拦截，curl能过）
+    从 AOGR 网站 (aogr.com) 爬取美国钻机数 (Baker Hughes 数据)。
+    替代原来不稳定的 Cloudflare 爬虫，无 Cloudflare 保护。
+    返回 dict:
+      {
+        "date": "2026-06-12",
+        "total": 562,
+        "oil": 433,
+        "gas": 121,
+        "misc": 8,
+        "source": "AOGR (Baker Hughes data)",
+        "us_count": 562,   # 兼容旧接口
+      }
+    失败返回 None
     """
     try:
-        import subprocess
-        cmd = [
-            "curl", "-s", "https://rigcount.bakerhughes.com/",
-            "-H", "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-            "--max-time", "15"
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if r.returncode != 0 or not r.stdout:
+        year = datetime.now().year
+        url = f"https://www.aogr.com/web-exclusives/us-rig-count/{year}"
+        r = requests.get(url, timeout=20, headers=UA)
+        if r.status_code != 200:
+            print(f"[Baker Hughes] HTTP {r.status_code}")
             return None
-        soup = BeautifulSoup(r.stdout, "lxml")
-        table = soup.find("table")
-        if not table:
+
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # AOGR 页面用 div+tailwind 表格（非 <table>），每个星期是一个 rig_count_container
+        containers = soup.find_all("div", class_=re.compile(r"rig_count_container"))
+        if not containers:
+            print("[Baker Hughes] No rig_count_container found")
             return None
-        result = {"source": "Baker Hughes (curl)"}
-        for row in table.find_all("tr"):
-            cells = row.find_all("td")
-            if len(cells) >= 6:
-                area = cells[0].get_text(strip=True)
-                date_raw = cells[1].get_text(strip=True)
-                count = cells[2].get_text(strip=True).replace(",", "")
-                chg = cells[3].get_text(strip=True)
-                if "U.S." in area or area.upper() == "US":
-                    result["us_count"] = int(count)
-                    result["us_change"] = chg
-                elif "Canada" in area:
-                    result["canada_count"] = int(count)
-                    result["canada_change"] = chg
-                # 解析日期
-                m = re.match(r'(\d+)\s*(\w+)(\d{4})', date_raw)
-                if m:
-                    day, mon_str, year = m.groups()
-                    month_map = {"January":1,"February":2,"March":3,"April":4,"May":5,"June":6,
-                                 "July":7,"August":8,"September":9,"October":10,"November":11,"December":12}
-                    month = month_map.get(mon_str, 1)
-                    result["date"] = f"{year}-{month:02d}-{int(day):02d}"
-        if "us_count" in result and "canada_count" in result:
-            result["na_total"] = result["us_count"] + result["canada_count"]
-        return result
+
+        # 第一个 container 是最新一周
+        c = containers[0]
+
+        # ── 日期 ──
+        date_div = c.find("div", class_=re.compile(r"\bdate\b"))
+        if not date_div:
+            print("[Baker Hughes] No date element")
+            return None
+        date_raw = date_div.get_text(strip=True)  # e.g. "06/12/2026"
+        # 转换 MM/DD/YYYY → YYYY-MM-DD
+        try:
+            m = re.match(r"(\d{2})/(\d{2})/(\d{4})", date_raw)
+            if m:
+                mm, dd, yyyy = m.groups()
+                date_str = f"{yyyy}-{mm}-{dd}"
+            else:
+                date_str = date_raw
+        except Exception:
+            date_str = date_raw
+
+        # ── 总钻机数 ──
+        total = _parse_aogr_rig_cell(c, "total_rigs_curr", total_pattern=True)
+
+        # ── 油气钻机数 ──
+        oil = _parse_aogr_rig_cell(c, r"\boil\b")
+
+        # ── 天然气钻机数 ──
+        gas = _parse_aogr_rig_cell(c, r"\bgas\b")
+
+        # ── 杂项钻机数 ──
+        misc = _parse_aogr_rig_cell(c, r"\bmisc\b")
+
+        if total is None:
+            print("[Baker Hughes] Could not parse total rig count")
+            return None
+
+        return {
+            "date": date_str,
+            "total": total,
+            "oil": oil,
+            "gas": gas,
+            "misc": misc,
+            "source": "AOGR (Baker Hughes data)",
+            # 兼容旧 energy_weekly.py 接口
+            "us_count": total,
+            "us_change": "",
+            "canada_count": 0,
+            "canada_change": "",
+            "na_total": total,
+        }
     except Exception as e:
         print(f"[Baker Hughes] Error: {e}")
         return None
+
+
+def _parse_aogr_rig_cell(container, class_pattern, total_pattern=False):
+    """
+    从 rig_count_container 中解析钻机数单元格的值。
+    class_pattern: 用于匹配 div 的 CSS class 的正则
+    total_pattern: True 时匹配 "change + total" 格式，False 匹配 "change (count)" 格式
+    """
+    try:
+        div = container.find("div", class_=re.compile(class_pattern))
+        if not div:
+            return None
+        if total_pattern:
+            # 总钻机数在 <span class="tc-tot-curr"> 中
+            # 内部结构: <span class="text-red-dark">-1</span> 562
+            # 需要找到 tc-tot-curr span 的最后一个文本节点
+            tc_span = div.find("span", class_=re.compile(r"tc-tot-curr"))
+            if tc_span:
+                # 遍历子节点，找最后一个 NavigableString
+                for child in reversed(list(tc_span.children)):
+                    if isinstance(child, str):
+                        nums = re.findall(r"\d{2,4}", child.strip())
+                        if nums:
+                            return int(nums[-1])
+            # fallback: 用不 strip 的全文匹配
+            text = div.get_text()
+            m = re.search(r"(\d)\s+(\d{2})\s*$", text)
+            if m:
+                return int(m.group(1) + m.group(2))
+            nums = re.findall(r"(\d{3,4})\b", text)
+            if nums:
+                return int(nums[-1])
+        else:
+            # 格式: "Oil (Wk./Wk.)+2(433)" 或 "Gas (Wk./Wk.)-3(121)"
+            # 提取括号中的数字
+            text = div.get_text(strip=True)
+            m = re.search(r"\((\d+)\)", text)
+            if m:
+                return int(m.group(1))
+    except Exception:
+        pass
+    return None
 
 
 # ═══════════════════════════════════════════════════════════
@@ -262,21 +342,79 @@ def fetch_usda_crop_condition(use_proxy=True):
 # ═══════════════════════════════════════════════════════════
 def fetch_bdi(use_proxy=True):
     """
-    从 Investing.com 爬取波罗的海干散货运价指数 (BDI / BADI)。
-    URL: https://www.investing.com/indices/baltic-dry
+    获取波罗的海干散货运价指数 (BDI)。
+    数据源优先级: TradingEconomics → Investing.com
     返回 dict:
       {
-        "price": 2818.00,
-        "change": -98.00,
-        "change_pct": -3.36,
-        "prev_close": 1602,
-        "open": 2818,
-        "date": "2026-06-09",
-        "source": "Investing.com (BADI)",
-        "ticker": "BADI"
+        "date": "2026-06-12",
+        "value": 2729,
+        "change": 0,
+        "change_pct": 0.0,
+        "price": 2729,         # 向后兼容 agri_weekly.py
+        "prevClose": 2729,     # 向后兼容 agri_weekly.py
+        "source": "TradingEconomics (Baltic Dry)"
       }
     失败返回 None
     """
+    # === Source 1: TradingEconomics (直接 curl 可访问，无需浏览器) ===
+    try:
+        r = requests.get(
+            "https://tradingeconomics.com/commodity/baltic",
+            timeout=20,
+            headers={**UA, "Accept-Language": "en-US,en;q=0.5"},
+        )
+        if r.status_code == 200:
+            html = r.text
+            result = {"source": "TradingEconomics (Baltic Dry)"}
+
+            # 价格: <td id="p">2,729.00 </td>
+            price_m = re.search(r'<td id="p">\s*([\d,.]+)\s*</td>', html)
+            if price_m:
+                result["price"] = float(price_m.group(1).replace(",", ""))
+                result["value"] = result["price"]
+
+            # 日涨跌: <td id="nch" ...>0</td> (第一个是BDI)
+            chg_m = re.search(r'<td id="nch"[^>]*>([+-]?[\d,.]+)</td>', html)
+            if chg_m:
+                result["change"] = float(chg_m.group(1).replace(",", ""))
+
+            # 从 meta description 提取日期: "June 12, 2026"
+            date_m = re.search(r'(\w+ \d+, \d{4})', html)
+            if date_m:
+                try:
+                    dt = datetime.strptime(date_m.group(1), "%B %d, %Y")
+                    result["date"] = dt.strftime("%Y-%m-%d")
+                except:
+                    pass
+
+            # 从描述提取月度涨跌百分比: "fallen 14.42%"
+            pct_m = re.search(r'(?:risen|fallen)\s+([\d.]+)%', html)
+            if pct_m:
+                pct_val = float(pct_m.group(1))
+                if "fallen" in html[max(0, pct_m.start() - 10):pct_m.start() + 5]:
+                    result["change_pct"] = -pct_val
+                else:
+                    result["change_pct"] = pct_val
+
+            # 从 stats 段落提取更精确的描述信息
+            stats_m = re.search(r'traded\s+(\w+)\s+at\s+([\d,]+)', html)
+            if stats_m:
+                verb = stats_m.group(1)
+                if verb == "flat":
+                    result["change"] = 0.0
+                    result["change_pct"] = 0.0
+
+            # prevClose: 用前一日数据近似 (BDI 不像股票有明确 prevClose)
+            if "price" in result:
+                result["prevClose"] = result["price"] - result.get("change", 0)
+
+            if "price" in result:
+                print(f"[BDI] TradingEconomics OK: {result['price']} on {result.get('date', '?')}")
+                return result
+    except Exception as e:
+        print(f"[BDI] TradingEconomics error: {e}")
+
+    # === Source 2: Investing.com (需要浏览器，作为后备) ===
     proxies = get_proxy() if use_proxy else None
     try:
         r = requests.get("https://www.investing.com/indices/baltic-dry",
@@ -290,11 +428,11 @@ def fetch_bdi(use_proxy=True):
         soup = BeautifulSoup(r.text, "lxml")
         result = {"source": "Investing.com (BADI)", "ticker": "BADI"}
 
-        # 从 data-test 属性提取
         price_el = soup.find(attrs={"data-test": "instrument-price-last"})
         if price_el:
             try:
                 result["price"] = float(price_el.get_text(strip=True).replace(",", ""))
+                result["value"] = result["price"]
             except:
                 pass
 
@@ -313,7 +451,6 @@ def fetch_bdi(use_proxy=True):
             except:
                 pass
 
-        # prevClose and open
         for attr in ["prevClose", "open"]:
             el = soup.find(attrs={"data-test": attr})
             if el:
@@ -322,11 +459,9 @@ def fetch_bdi(use_proxy=True):
                 except:
                     pass
 
-        # 日期从 trading-state-label 或 time label
         date_el = soup.find(attrs={"data-test": "trading-time-label"})
         if date_el:
             date_str = date_el.get_text(strip=True)
-            # Format: "09/06" -> interpret as DD/MM
             m = re.match(r'(\d+)/(\d+)', date_str)
             if m:
                 day, month = m.groups()
@@ -338,7 +473,7 @@ def fetch_bdi(use_proxy=True):
         return None
 
     except Exception as e:
-        print(f"[BDI] Error: {e}")
+        print(f"[BDI] Investing.com error: {e}")
         return None
 
 

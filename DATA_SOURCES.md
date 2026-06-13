@@ -50,15 +50,16 @@
 |---|------|---------|------|---------|---------|
 | 1 | **USDA作物优良率** | `usda.library.cornell.edu/concern/publications/8336h188j` | 国际农业 | data_scrapers.py → `fetch_usda_crop_condition()` | **两步：①爬Cornell页面找最新PDF链接 → ②下载PDF用pdfplumber解析表格**。需`pip install pdfplumber`。 |
 | 2 | **USDA出口检验** | `ams.usda.gov/mnreports/wa_gr101.txt` | 国际农业 | data_scrapers.py → `fetch_usda_export_inspections()` | **直接请求TXT文件，正则解析**。美湾谷物出口数据，网站无反爬。 |
-| 3 | **BDI波罗的海干散货运价** | `investing.com/indices/baltic-dry` | 国际农业 | data_scrapers.py → `fetch_bdi()` | **requests+BeautifulSoup**。VPS直连失败(Investing.com反爬)，本地代理可通。 |
+| 3 | **BDI波罗的海干散货运价** | `tradingeconomics.com/commodity/baltic` | 国际农业 | data_scrapers.py → `fetch_bdi()` | **TradingEconomics直接解析**，无需代理，稳定。备用Investing.com。 |
 | 4 | **OPEC MOMR月报**(备用) | `momr.opec.org/pdf-download` | 能源 | opec_data.py → `fetch_opec_momr()` | **Scrapling StealthyFetcher**过Cloudflare，约20s。主用EIA STEO。 |
 
 ### 已废弃的爬虫
 
 | 数据 | 原方法 | 废弃原因 | 新方案 |
 |------|--------|---------|--------|
-| Baker Hughes钻机数 | curl+BS4 | Cloudflare+TLS不稳定 | **方案见CSV下载** |
-| NOAA降水 | requests+BS4 | CPC网站404 | Open-Meteo API |
+| Baker Hughes钻机数 | curl+BS4(VPS) | Cloudflare+TLS不稳定 | **AOGR网站静态HTML → fetch_baker_hughes()** ✅已接入 |
+| BDI波罗的海运价 | Investing.com | Cloudflare反爬 | **TradingEconomics → fetch_bdi()** ✅已接入 |
+| NOAA降水 | requests+BS4 | CPC网站404 | Open-Meteo API ✅已替代 |
 
 ---
 
@@ -68,15 +69,13 @@
 
 | # | 数据 | 下载地址 | 报告 | 方案 | 说明 |
 |---|------|---------|------|------|------|
-| 1 | **Baker Hughes钻机数** | `https://bakerhughesggi.com/rig-count/` | 能源 | 每周定时请求PDF/HTML静态页 | 报告页面无反爬，比curl绕过Cloudflare稳定 |
-| 2 | **BDI波罗的海干散货运价** (替代) | `https://www.balticexchange.com/en/data-and-information/dry-bulk-indices.html` | 国际农业 | 直接下载CSV | 官方数据，无反爬，比Investing.com稳定 |
-| 3 | **美湾港口库存** | `https://mymarketnews.ams.usda.gov/` | 国际农业 | USDA AMS公开数据，支持CSV批量导出 | 美湾大豆/玉米/小麦港口周度库存，完全免费无需注册 |
-| 4 | **南美结转库存** | `https://www.conab.gov.br/info-agro/safras` | 国际农业 | CONAB官网CSV批量导出 | 巴西大豆/玉米/白糖官方库存数据，完全免费 |
-| 5 | **南美结转库存(阿根廷)** | `https://www.magyp.gob.ar/sitio/areas/estimaciones/principal.php` | 国际农业 | 阿根廷农业部公开数据 | 阿根廷大豆/玉米/小麦结转库存 |
-| 6 | **中国油厂压榨率/开工率** | `https://www.grainoil.com.cn/` | 中国农业 | 国家粮油信息中心(CNGOIC)周报PDF/Excel | 每周发布全国大豆压榨量/开工率，免费注册 |
-| 7 | **豆粕/玉米商业库存** | `https://www.feedtrade.com.cn/` | 中国农业 | 饲料行业信息网公开数据 | 每日更新豆粕/玉米港口库存 |
+| 1 | **美湾港口库存** | `https://mymarketnews.ams.usda.gov/` | 国际农业 | USDA AMS公开数据，支持CSV批量导出 | 美湾大豆/玉米/小麦港口周度库存，完全免费无需注册 |
+| 2 | **南美结转库存** | `https://www.conab.gov.br/info-agro/safras` | 国际农业 | CONAB官网CSV批量导出 | 巴西大豆/玉米/白糖官方库存数据，完全免费 |
+| 3 | **南美结转库存(阿根廷)** | `https://www.magyp.gob.ar/sitio/areas/estimaciones/principal.php` | 国际农业 | 阿根廷农业部公开数据 | 阿根廷大豆/玉米/小麦结转库存 |
+| 4 | **中国油厂压榨率/开工率** | `https://www.grainoil.com.cn/` | 中国农业 | 国家粮油信息中心(CNGOIC)周报PDF/Excel | 每周发布全国大豆压榨量/开工率，免费注册 |
+| 5 | **豆粕/玉米商业库存** | `https://www.feedtrade.com.cn/` | 中国农业 | 饲料行业信息网公开数据 | 每日更新豆粕/玉米港口库存 |
 
-> **待接优先级**：BDI官方CSV > Baker Hughes报告页 > 美湾库存(USDA AMS) > 南美库存(CONAB) > 压榨率(CNGOIC) > 商业库存
+> **待接优先级**：美湾库存(USDA AMS) > 南美库存(CONAB) > 压榨率(CNGOIC) > 商业库存（需要手动下载或注册API Key）
 
 ---
 

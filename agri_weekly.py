@@ -137,6 +137,14 @@ def global_agri():
     yahoo = load("yahoo_futures")
     cot = load("cotdata")
 
+    # ── 导入data_scrapers（提前导入，供摘要表和供需分析使用）──
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from data_scrapers import fetch_usda_export_inspections
+
+    # ── 预取美湾出口检验数据 ──
+    gulf_export = fetch_usda_export_inspections()
+
     # ── 建立价格查询字典 ──
     # Yahoo品種列（繁体）: 玉米期貨, 大豆期貨, 小麥期貨, 豆油期貨, 豆粕期貨, 棉花期貨, 糖期貨
     price_lookup = {}  # keyword → {"price": x, "chg_pct": y}
@@ -234,6 +242,11 @@ def global_agri():
                 lines.append(f"{dim_name} | 净多{total_agri_net:+,}手 | {direction_str}")
             else:
                 lines.append(f"{dim_name} | — | —")
+        elif dim_name == "美湾港口装运率":
+            if gulf_export and gulf_export.get("gulf_total_mt"):
+                lines.append(f"{dim_name} | 美湾总装运{gulf_export['gulf_total_mt']:,}t | —")
+            else:
+                lines.append(f"{dim_name} | — | —")
         else:
             lines.append(f"{dim_name} | — | —")
 
@@ -272,9 +285,7 @@ def global_agri():
     # 尝试从已有数据推算部分指标
     # 用COT持仓变化作为资金面参考，价格变化作为需求参考
     env_items_data = []
-    # 从data_scrapers获取实时数据
-    import sys, os
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    # 从data_scrapers获取实时数据（fetch_usda_export_inspections已在函数开头预取）
     from data_scrapers import fetch_usda_crop_condition, fetch_bdi, fetch_openmeteo_precip
     
     # 美产区周度降水 — Open-Meteo免费API
@@ -291,8 +302,12 @@ def global_agri():
         env_items_data.append((f"美作物优良率", f"玉米G/E {cc['good_excellent']}% 大豆G/E {sc['good_excellent']}%", f"—", f"USDA周报 {usda.get('date','')}"))
     else:
         env_items_data.append(("美作物优良率", "—", "—", "USDA周报待更新"))
-    # USDA出口销售数据
-    env_items_data.append(("USDA出口销售数据", "—", "—", "关注周度USDA出口检验报告"))
+    # USDA出口检验数据 — 美湾谷物装运（已在函数开头预取）
+    if gulf_export and gulf_export.get("gulf_total_mt"):
+        gulf = gulf_export
+        env_items_data.append(("美湾出口检验", f"总{gulf['gulf_total_mt']:,}t 玉米{gulf['gulf_corn_mt']:,}t 大豆{gulf['gulf_soybeans_mt']:,}t", f"—", f"USDA {gulf.get('date','')}"))
+    else:
+        env_items_data.append(("USDA出口销售数据", "—", "—", "关注周度USDA出口检验报告"))
     # 美湾库存
     env_items_data.append(("美湾库存", "—", "—", "—"))
     # 南美结转库存
