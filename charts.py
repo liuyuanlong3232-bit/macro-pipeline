@@ -68,7 +68,7 @@ def setup_grid(ax):
 
 # ============ 1. FRED关键指标走势 ============
 def chart_fred_trends():
-    """15年FRED宏观指标走势"""
+    """近3年FRED宏观指标走势"""
     indicators = [
         ("联邦基金利率", "#E74C3C"),
         ("美国CPI", "#3498DB"),
@@ -80,12 +80,14 @@ def chart_fred_trends():
     fig, ax = plt.subplots(figsize=(12, 5.5))
     db = conn()
 
+    # 只取近3年（约1095天）
     for name, color in indicators:
         rows = db.execute(
-            "SELECT date, value FROM macro_history WHERE indicator=? AND value IS NOT NULL ORDER BY date",
+            "SELECT date, value FROM macro_history WHERE indicator=? AND value IS NOT NULL ORDER BY date DESC LIMIT 1100",
             (name,)
         ).fetchall()
-        if len(rows) < 2:
+        rows = list(reversed(rows))  # 恢复时间顺序
+        if len(rows) < 10:
             continue
         vals = [float(r[1]) for r in rows]
         x = range(len(vals))

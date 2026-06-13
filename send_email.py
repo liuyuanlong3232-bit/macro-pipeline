@@ -53,13 +53,13 @@ def send_report(filepath, chart_type=""):
 <html><head><meta charset="utf-8"></head><body style="font-family: 'Microsoft YaHei', sans-serif; color: #333; max-width: 800px; margin: 0 auto; padding: 20px;">
 <div style="background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">""")
 
-    # 图表区域 - 按报告类型
+    # 图表区域 - 按报告类型，不配图就不渲图
     chart_section = ""
-    if chart_type == "macro" or chart_type == "":
+    if chart_type == "macro":
         fred_chart = CHART_DIR / "fred_trends.png"
         if fred_chart.exists():
             b64 = img_to_base64(fred_chart)
-            html_parts.append(f"""<div style="margin:15px 0;"><h3 style="color:#2C3E50;border-left:4px solid #3498DB;padding-left:10px;">📊 美国关键宏观指标走势（15年）</h3><img src="data:image/png;base64,{b64}" style="width:100%;max-width:700px;border-radius:4px;margin:10px 0;"></div>""")
+            html_parts.append(f"""<div style="margin:15px 0;"><h3 style="color:#2C3E50;border-left:4px solid #3498DB;padding-left:10px;">美国关键宏观指标走势（近3年）</h3><img src="data:image/png;base64,{b64}" style="width:100%;max-width:700px;border-radius:4px;margin:10px 0;"></div>""")
 
     if chart_type in ("metals",):
         for name, title_text in [
@@ -82,7 +82,7 @@ def send_report(filepath, chart_type=""):
                 b64 = img_to_base64(p)
                 html_parts.append(f"""<div style="margin:15px 0;"><h3 style="color:#2C3E50;border-left:4px solid #27AE60;padding-left:10px;">📊 {title_text}</h3><img src="data:image/png;base64,{b64}" style="width:100%;max-width:700px;border-radius:4px;margin:10px 0;"></div>""")
 
-    # Markdown内容转HTML - 精简版，有图就不需要完整表格了
+    # Markdown内容转HTML - 有图就精简文字，去掉所有表格符号
     html_body = ""
     skip_next_n = 0
     for i, line in enumerate(lines):
@@ -95,37 +95,45 @@ def send_report(filepath, chart_type=""):
         if stripped.startswith("# "):
             continue
 
-        # 跳过表格分隔行
-        if stripped.startswith("|---") or stripped.startswith("|:---"):
+        # 跳过表格分隔行和下划线行
+        if stripped.startswith("|---") or stripped.startswith("|:---") or stripped.startswith("___"):
             continue
 
         # 跳过整行纯表格线
         if set(stripped) <= set("|-: "):
             continue
 
+        # 统一去除行首的|符号（Markdown表格处理）
+        raw = stripped
+        while raw.startswith("|"):
+            raw = raw[1:].strip()
+        while raw.endswith("|"):
+            raw = raw[:-1].strip()
+        raw = raw.strip()
+
+        # 跳过全是分隔符的行
+        if not raw or set(raw) <= set("-: "):
+            continue
+
         # 标题
-        if stripped.startswith("## "):
-            html_body += f'<h3 style="color:#2C3E50;margin-top:22px;border-bottom:1px solid #eee;padding-bottom:6px;">{stripped[3:]}</h3>\n'
-        elif stripped.startswith("### "):
-            html_body += f'<h4 style="color:#E67E22;margin-top:18px;">{stripped[4:]}</h4>\n'
-        elif stripped.startswith("**") and stripped.endswith("**"):
-            # 加粗文本当作小标题
-            html_body += f'<p style="font-weight:bold;margin-top:12px;color:#2C3E50;">{stripped.strip("*")}</p>\n'
-        elif stripped.startswith("| "):
-            # 表格行 → 中文冒号分隔
-            cells = [c.strip() for c in stripped.split("|")[1:-1]]
-            if cells:
-                # 表头行和普通行不一样处理
-                txt = "　　" + "　".join(cells)
-                html_body += f'<p style="font-size:12px;color:#555;margin:2px 0;">{txt}</p>\n'
-        elif stripped.startswith("- "):
-            html_body += f'<li style="margin:3px 0;color:#444;">{stripped[2:]}</li>\n'
-        elif stripped == "---":
+        if raw.startswith("## "):
+            html_body += f'<h3 style="color:#2C3E50;margin-top:22px;border-bottom:1px solid #eee;padding-bottom:6px;">{raw[3:]}</h3>\n'
+        elif raw.startswith("### "):
+            html_body += f'<h4 style="color:#E67E22;margin-top:18px;">{raw[4:]}</h4>\n'
+        elif raw.startswith("**") and raw.endswith("**"):
+            html_body += f'<p style="font-weight:bold;margin-top:12px;color:#2C3E50;">{raw.strip("*")}</p>\n'
+        elif raw.startswith("- ") or raw.startswith("* "):
+            html_body += f'<p style="margin:3px 0;color:#444;padding-left:15px;">{raw[2:]}</p>\n'
+        elif raw.startswith("> "):
+            html_body += f'<p style="margin:5px 0;color:#888;font-style:italic;padding-left:10px;border-left:3px solid #ddd;">{raw[2:]}</p>\n'
+        elif raw == "---":
             html_body += '<hr style="border:none;border-top:1px solid #eee;margin:15px 0;">\n'
-        elif stripped == "":
+        elif raw == "":
             html_body += '<br>\n'
         else:
-            html_body += f'<p style="line-height:1.6;color:#333;font-size:13px;">{stripped}</p>\n'
+            # 普通文本，替换所有残留的|为中文空格
+            clean = raw.replace("|", "　")
+            html_body += f'<p style="line-height:1.6;color:#333;font-size:13px;margin:3px 0;">{clean}</p>\n'
 
     html_parts.append(f'<div style="margin-top:20px;">{html_body}</div>')
     html_parts.append('</div></body></html>')
