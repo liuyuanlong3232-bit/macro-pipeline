@@ -114,8 +114,13 @@ def chart_gold_price():
         ax.set_title(lbl, fontsize=11, fontweight="bold", color=col)
         ax.set_ylabel("$", fontsize=10)
         
+        # 各自独立Y轴范围
+        ymin, ymax = min(y), max(y)
+        padding = (ymax - ymin) * 0.15
+        ax.set_ylim(ymin - padding, ymax + padding)
+        
         # 标注首尾值
-        ax.text(0, y[0], f"{y[0]:.0f}", fontsize=9, va="bottom", color="#7F8C8D")
+        ax.text(0, y[0], f"${y[0]:,.0f}", fontsize=9, va="bottom", color="#7F8C8D")
         ax.text(len(y)-1, y[-1], f"${y[-1]:,.0f}", fontsize=11, va="bottom", color=col, fontweight="bold")
         
         ax.grid(True, alpha=0.2)
