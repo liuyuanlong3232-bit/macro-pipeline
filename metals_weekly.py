@@ -81,6 +81,49 @@ def week_stats(df, kw):
         chg = f"{float(sub.iloc[0][cc]):+.2f}%" if cc is not None else "—"
     return avg, chg
 
+def fetch_fedwatch():
+    """从oddpool.com API获取FedWatch FOMC降息概率"""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    base = "https://www.oddpool.com/api/events/history"
+    now = datetime.now()
+    for m_offset in range(0, 2):
+        m = now.month + m_offset
+        y = now.year + (m - 1) // 12
+        m = (m - 1) % 12 + 1
+        for day in [17, 16, 18, 15, 19, 14, 20]:
+            event_id = f"fomc-{y}-{m:02d}-{day:02d}"
+            try:
+                r = requests.get(f"{base}/no_change", params={"event_id": event_id, "hours": 1},
+                                 headers=headers, timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("kalshi") or data.get("polymarket"):
+                        hold = cut_25 = None
+                        for venue in ["kalshi", "polymarket"]:
+                            items = data.get(venue, [])
+                            if items:
+                                p = items[-1].get("probabilities", {})
+                                hold_val = p.get("no_change")
+                                if hold_val is not None:
+                                    hold = f"{hold_val * 100:.1f}"
+                                break
+                        r2 = requests.get(f"{base}/cut_25bps", params={"event_id": event_id, "hours": 1},
+                                          headers=headers, timeout=10)
+                        if r2.status_code == 200:
+                            d2 = r2.json()
+                            for venue in ["kalshi", "polymarket"]:
+                                items = d2.get(venue, [])
+                                if items:
+                                    p = items[-1].get("probabilities", {})
+                                    cut_val = p.get("cut_25bps")
+                                    if cut_val is not None:
+                                        cut_25 = f"{cut_val * 100:.1f}"
+                                    break
+                        return {"hold": hold, "cut_25": cut_25}
+            except Exception:
+                continue
+    return None
+
 def report():
     yahoo = load("yahoo_futures")
     yahoo_week = load_week("yahoo_futures")
@@ -169,11 +212,20 @@ def report():
     cpi_v = nv(fred, "CPI")
     nfp_v = nv(fred, "非農")
     
-    lines.append(f"| TIPS十年期实际利率 | {tips_v}% | — | 高位压制黄金估值" if tips_v else "| TIPS十年期实际利率 | — | — | 高位压制黄金估值")
-    lines.append(f"| 美元指数 | {dxy_v} | — | 强势压制贵金属" if dxy_v else "| 美元指数 | — | — | 强势压制贵金属")
+    lines.append(f"| TIPS十年期实际利率 | {tips_v}% | — | 高位压制黄金估值 |" if tips_v else "| TIPS十年期实际利率 | — | — | 高位压制黄金估值 |")
+    lines.append(f"| 美元指数 | {dxy_v} | — | 强势压制贵金属 |" if dxy_v else "| 美元指数 | — | — | 强势压制贵金属 |")
     lines.append(f"| 联邦基金利率 | {ff_v}% | — | 高位限制流动性" if ff_v else "| 联邦基金利率 | — | — | 高位限制流动性")
-    lines.append("| 美联储6月利率决议概率 | 维持99.2% | — | 降息预期提供下方支撑 |")
-    tnx_disp = f"4.55%" if tnx_v else "—"
+    # FedWatch动态数据
+    fedwatch = fetch_fedwatch()
+    if fedwatch and fedwatch.get("hold"):
+        fw_str = f"维持{fedwatch['hold']}%"
+        if fedwatch.get("cut_25"):
+            fw_str += f"，降息{fedwatch['cut_25']}%"
+    else:
+        fw_str = "—"
+    lines.append(f"| 美联储利率决议概率 | {fw_str} | — | 降息预期提供下方支撑 |")
+    tnx_v2 = nv(fred, "10 年期國債") if fred is not None else None
+    tnx_disp = f"{tnx_v2}%" if tnx_v2 else "—"
     lines.append(f"| 美债收益率 | {tnx_disp} | — | 收益率高位压制非生息资产 |")
     mkt_str = "—"
     if nfp_v and cpi_v:

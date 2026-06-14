@@ -14,12 +14,25 @@ TODAY = datetime.now().strftime("%Y-%m-%d")
 def load(name):
     p = DATA_DIR / "csv" / TODAY / f"{name}.csv"
     if p.exists(): return pd.read_csv(p)
+    # 回退：查找最近有该文件的日期目录
+    csv_root = DATA_DIR / "csv"
+    if csv_root.exists():
+        for i in range(1, 8):
+            d = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+            p2 = csv_root / d / f"{name}.csv"
+            if p2.exists(): return pd.read_csv(p2)
     # 手动读SQLite
     import sqlite3
-    db = sqlite3.connect(str(DATA_DIR / "hermes.db"))
-    df = pd.read_sql(f"SELECT * FROM \"{name}\"", db)
-    db.close()
-    return df
+    db_path = DATA_DIR / "hermes.db"
+    if db_path.exists():
+        try:
+            db = sqlite3.connect(str(db_path))
+            df = pd.read_sql(f'SELECT * FROM "{name}"', db)
+            db.close()
+            return df
+        except:
+            pass
+    return pd.DataFrame()
 
 # ═══ 方向判断工具函数 ═══
 def fmt_score(val):
@@ -350,7 +363,19 @@ def global_agri():
         shown_cot = set()
         for target_key, display_name in cot_targets:
             if target_key == "棉花":
-                lines.append(f"{display_name} | — | — | — | 暂无COT数据")
+                # 从CFTC获取棉花COT数据
+                try:
+                    from data_scrapers import fetch_cftc_cot_cotton
+                    cotton_cot = fetch_cftc_cot_cotton()
+                    if cotton_cot and cotton_cot.get("managed_net") is not None:
+                        net = cotton_cot["managed_net"]
+                        oi = cotton_cot.get("oi", 0)
+                        sig = "偏多" if net > 10000 else "偏空" if net < -10000 else "中性"
+                        lines.append(f"{display_name} | 资管净{net:+,} | OI {oi:,} | — | {sig}")
+                    else:
+                        lines.append(f"{display_name} | — | — | — | 暂无COT数据")
+                except:
+                    lines.append(f"{display_name} | — | — | — | 暂无COT数据")
                 continue
             if target_key == "小麦":
                 # 小麦有SRW和HRW两个合约，合并显示
@@ -545,7 +570,7 @@ def global_agri():
     lines.append("- 黑海粮食协议谈判及乌克兰出口走廊运行")
     lines.append("- 美联储利率决策对美元指数及商品基金配置的影响")
     lines.append("")
-    lines.append("### 市场潜在风险提示（复刻能源周报风险话术）")
+    lines.append("### 市场潜在风险提示")
     lines.append("- 极端天气风险：北美产区拉尼娜/厄尔尼诺转换可能引发干旱或洪涝")
     lines.append("- 政策风险：中美贸易关系不确定性对大豆/玉米进口关税的影响")
     lines.append("- 地缘政治风险：黑海地区粮食出口协议续约不确定性")
@@ -681,12 +706,18 @@ def china_agri():
     lines.append("")
     lines.append("品种 | 交易所仓单量 | 产业套保持仓 | 主力资金持仓 | 资金信号")
     lines.append("--- | --- | --- | --- | ---")
-    if china_data:
-        for d in china_data:
-            lines.append(f"{d['品种']} | — | — | — | —")
-    else:
-        for name in TUSHARE_MAP.keys():
-            lines.append(f"{name} | — | — | — | —")
+    
+    # 从99qh.com获取仓单数据
+    try:
+        from data_scrapers import fetch_cn_warehouse_receipts
+        warehouse = fetch_cn_warehouse_receipts()
+    except:
+        warehouse = None
+    
+    for name in TUSHARE_MAP.keys():
+        wr_val = warehouse.get(name, "—") if warehouse else "—"
+        wr_str = f"{wr_val:,}手" if isinstance(wr_val, int) else "—"
+        lines.append(f"{name} | {wr_str} | — | — | —")
     lines.append("")
     lines.append("---")
 

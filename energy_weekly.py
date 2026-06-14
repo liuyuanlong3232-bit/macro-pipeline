@@ -15,6 +15,15 @@ TODAY = datetime.now().strftime("%Y-%m-%d")
 def load(name):
     p = DATA_DIR / "csv" / TODAY / f"{name}.csv"
     if p.exists(): return pd.read_csv(p)
+    # 回退：查找最近有该文件的日期目录
+    csv_root = DATA_DIR / "csv"
+    if csv_root.exists():
+        from datetime import timedelta
+        base = datetime.strptime(TODAY, "%Y-%m-%d")
+        for i in range(1, 8):
+            d = (base - timedelta(days=i)).strftime("%Y-%m-%d")
+            p2 = csv_root / d / f"{name}.csv"
+            if p2.exists(): return pd.read_csv(p2)
     return pd.DataFrame()
 
 def gv(df, kw):
@@ -24,6 +33,21 @@ def gv(df, kw):
             sub = df[df[c].str.contains(kw, na=False, regex=False)]
             if not sub.empty:
                 return str(sub.iloc[0][vc]), str(sub.iloc[0].get("日期",""))
+    return None, None
+
+def gv_chg(df, kw):
+    """返回(价格, 日涨跌幅%)"""
+    for c in df.columns:
+        if "指標" in c or "品種" in c:
+            vc = [x for x in df.columns if "數值" in x or "最新" in x or "價" in x][0]
+            chg_cols = [x for x in df.columns if "漲跌幅" in x or "涨跌幅" in x]
+            chg_col = chg_cols[0] if chg_cols else None
+            sub = df[df[c].str.contains(kw, na=False, regex=False)]
+            if not sub.empty:
+                price = str(sub.iloc[0][vc])
+                chg_val = sub.iloc[0][chg_col] if chg_col else None
+                chg = f"{chg_val}%" if chg_val is not None else "—"
+                return price, chg
     return None, None
 
 def fetch_eia_energy():
@@ -134,11 +158,12 @@ def report():
         fr = agsi.iloc[0].get("填充率%", "—")
         lines.append(f"| 欧洲天然气库存 | 德国填充率 {fr}% | ↑ 补充季正常 |")
     
-    cot_wti = cot[cot["品種"].str.contains("WTI", na=False)]
-    if not cot_wti.empty:
-        ci = cot_wti.iloc[0].get("COT Index(26W)", 50)
-        sig = "极端看空" if ci <= 10 else "偏空" if ci <= 30 else "中性"
-        lines.append(f"| CFTC原油持仓 | COT指数 {ci:.0f} | {sig} |")
+    if not cot.empty and "品種" in cot.columns:
+        cot_wti = cot[cot["品種"].str.contains("WTI", na=False)]
+        if not cot_wti.empty:
+            ci = cot_wti.iloc[0].get("COT Index(26W)", 50)
+            sig = "极端看空" if ci <= 10 else "偏空" if ci <= 30 else "中性"
+            lines.append(f"| CFTC原油持仓 | COT指数 {ci:.0f} | {sig} |")
     lines.append("")
     
     # 二、原油
@@ -150,7 +175,9 @@ def report():
     lines.append("| 指标 | WTI | Brent | 来源 |")
     lines.append("|------|-----|-------|------|")
     lines.append(f"| 最新收盘 | ${wti_p or '—'} | ${brent_p or '—'} | Yahoo |")
-    lines.append(f"| 周涨跌幅 | {gv(yahoo,'WTI')[0] if wti_p else '—'}% | {gv(yahoo,'Brent')[0] if brent_p else '—'}% | Yahoo |")
+    wti_chg_price, wti_chg_pct = gv_chg(yahoo, "WTI")
+    brent_chg_price, brent_chg_pct = gv_chg(yahoo, "Brent")
+    lines.append(f"| 周涨跌幅 | {wti_chg_pct if wti_chg_pct else '—'} | {brent_chg_pct if brent_chg_pct else '—'} | Yahoo |")
     spread = ""
     if brent_p and wti_p:
         try: spread = f"${float(brent_p)-float(wti_p):+.2f}"
@@ -310,7 +337,9 @@ def report():
     lines.append("---")
     lines.append("## 六、CFTC资金持仓分析")
     lines.append("")
-    lines.append(f"**报告日期**: 2026-06-02 | **公布日期**: 2026-06-05")
+    cot_report_date = str(cot.iloc[0].get("報告日期", "—")) if not cot.empty and "報告日期" in cot.columns else "—"
+    cot_publish_date = str(cot.iloc[0].get("抓取日", "—")) if not cot.empty and "抓取日" in cot.columns else "—"
+    lines.append(f"**报告日期**: {cot_report_date} | **公布日期**: {cot_publish_date}")
     lines.append("")
     lines.append("| 品种 | 投机净持仓 | COT指数 | Z分数 | 信号 |")
     lines.append("|------|-----------|---------|-------|------|")
@@ -328,8 +357,8 @@ def report():
     lines.append("")
     lines.append("| 资产 | 评分 | 核心逻辑 |")
     lines.append("|------|------|---------|")
-    lines.append("| 原油 | -3 | 伊朗局势支撑 + 欧佩克减产执行；但需求担忧限制评分 |")
-    lines.append("| 天然气 | -1 | 库存高位 + 需求季节性偏低；液化天然气(LNG)出口支撑 |")
+    lines.append("| 原油 | -3 | 全球需求前景疲软+制造业PMI走弱压制油价；地缘风险溢价与欧佩克减产提供部分对冲 |")
+    lines.append("| 天然气 | -1 | 库存高位+需求季节性偏低；LNG出口支撑有限 |")
     lines.append("")
     
     # 八、关注

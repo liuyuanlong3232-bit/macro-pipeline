@@ -68,50 +68,55 @@ def setup_grid(ax):
 
 # ============ 1. FRED关键指标走势 ============
 def chart_fred_trends():
-    """近3年FRED宏观指标走势"""
+    """生成4张独立的FRED宏观指标走势图"""
     indicators = [
-        ("联邦基金利率", "#E74C3C"),
-        ("美国CPI", "#3498DB"),
-        ("美国失业率", "#27AE60"),
-        ("美国10年国债收益率", "#F39C12"),
-        ("10年TIPS收益率", "#9B59B6"),
+        ("联邦基金利率", "fred_fed_rate.png", "#E74C3C", "联邦基金利率"),
+        ("美国CPI", "fred_cpi.png", "#3498DB", "美国CPI"),
+        ("美国10年国债收益率", "fred_10y.png", "#F39C12", "美国10年国债收益率"),
+        ("10年TIPS收益率", "fred_tips.png", "#9B59B6", "10年TIPS收益率"),
     ]
 
-    fig, ax = plt.subplots(figsize=(12, 5.5))
     db = conn()
+    paths = {}
 
-    # 只取近3年（约1095天）
-    for name, color in indicators:
+    for indicator_name, filename, color, display_name in indicators:
         rows = db.execute(
-            "SELECT date, value FROM macro_history WHERE indicator=? AND value IS NOT NULL ORDER BY date DESC LIMIT 1100",
-            (name,)
+            "SELECT date, value FROM macro_history WHERE indicator=? AND value IS NOT NULL ORDER BY date DESC LIMIT 5500",
+            (indicator_name,)
         ).fetchall()
         rows = list(reversed(rows))  # 恢复时间顺序
         if len(rows) < 10:
             continue
+
         vals = [float(r[1]) for r in rows]
-        x = range(len(vals))
-        ax.plot(x, vals, color=color, linewidth=1.5, label=name, alpha=0.85)
-        # 最新值标注
-        if len(vals) > 0:
-            last_val = vals[-1]
-            ax.text(len(vals)-1, last_val, f"  {last_val:.2f}",
-                    va="bottom" if name != "美国CPI" else "top",
-                    fontsize=8, color=color, fontweight="bold",
-                    bbox=dict(boxstyle="round,pad=0.2", facecolor="white",
-                              edgecolor=color, alpha=0.8))
+        n = len(vals)
+        x = range(n)
+
+        fig, ax = plt.subplots(figsize=(12, 4))
+        ax.plot(x, vals, color=color, linewidth=1.5, alpha=0.85)
+        ax.fill_between(x, vals, alpha=0.08, color=color)
+
+        # 独立Y轴
+        ypad = (max(vals) - min(vals)) * 0.12
+        ax.set_ylim(min(vals) - ypad, max(vals) + ypad)
+
+        # 标注：左下起始，右下最新
+        tag_start(ax, 0, vals[0], f"{vals[0]:.2f}")
+        tag_end(ax, n - 1, vals[-1], f"{vals[-1]:.2f}", color)
+
+        ax.set_title(f"{display_name}走势（15年）", fontsize=13, fontweight="bold", color=C["dark"])
+        setup_grid(ax)
+        clean_spines(ax)
+        plt.tight_layout()
+
+        p = CHART_DIR / filename
+        fig.savefig(p, dpi=150, bbox_inches="tight")
+        plt.close()
+        print(f"  ✅ {display_name}(15年): {p}")
+        paths[indicator_name] = p
 
     db.close()
-    ax.set_title("美国关键宏观指标走势（15年）", fontsize=13, fontweight="bold", color=C["dark"])
-    ax.legend(fontsize=9, loc="upper left", framealpha=0.8)
-    setup_grid(ax)
-    clean_spines(ax)
-    plt.tight_layout()
-    p = CHART_DIR / "fred_trends.png"
-    fig.savefig(p, dpi=150, bbox_inches="tight")
-    plt.close()
-    print(f"  ✅ FRED走势(15年): {p}")
-    return p
+    return paths
 
 # ============ 2. 黄金价格走势 ============
 def chart_gold_price():
@@ -431,7 +436,6 @@ def generate_all():
         ("cot_net", chart_cot_net),
         ("cot_index", chart_cot_index),
         ("cot_long_short", chart_cot_long_short),
-        ("fred_trends", chart_fred_trends),
         ("gold_price", chart_gold_price),
         ("silver_price", chart_silver_price),
         ("gold_silver_ratio", chart_gold_silver_ratio),
@@ -443,6 +447,14 @@ def generate_all():
                 charts[name] = p
         except Exception as e:
             print(f"  ❌ {name}: {e}")
+
+    # FRED指标返回字典，拆分4张图
+    try:
+        fred_paths = chart_fred_trends()
+        if fred_paths:
+            charts.update(fred_paths)
+    except Exception as e:
+        print(f"  ❌ fred_trends: {e}")
 
     print(f"  ✅ 共生成 {len(charts)} 张图")
     return charts

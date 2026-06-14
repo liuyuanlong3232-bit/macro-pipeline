@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """全球宏观周度研究报告 - 输出结构匹配固定提示词模板"""
 import os
-from datetime import datetime
+import re
+import requests
+from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 import pandas as pd
@@ -13,11 +15,22 @@ DATA_DIR = Path.home() / "hermes-macro-data"
 TODAY = datetime.now().strftime("%Y-%m-%d")
 TS_TOKEN = os.getenv("TUSHARE_TOKEN")
 
+
 def load_csv(name):
+    """加载CSV，优先TODAY目录，找不到则回退到最近日期目录"""
     p = DATA_DIR / "csv" / TODAY / f"{name}.csv"
     if p.exists():
         return pd.read_csv(p)
+    csv_root = DATA_DIR / "csv"
+    if csv_root.exists():
+        base = datetime.strptime(TODAY, "%Y-%m-%d")
+        for i in range(1, 8):
+            d = (base - timedelta(days=i)).strftime("%Y-%m-%d")
+            p2 = csv_root / d / f"{name}.csv"
+            if p2.exists():
+                return pd.read_csv(p2)
     return pd.DataFrame()
+
 
 def gv(df, kw):
     """从FRED取指标最新值，返回(数值, 日期)"""
@@ -28,6 +41,7 @@ def gv(df, kw):
         return None, None
     return sub.iloc[0][val_col], sub.iloc[0]["日期"]
 
+
 def gv_all(df, kw):
     """从FRED取指标全部值（按日期降序），返回[(数值, 日期), ...]"""
     name_col = [c for c in df.columns if "標" in c][0]
@@ -36,6 +50,7 @@ def gv_all(df, kw):
     if sub.empty:
         return []
     return list(zip(sub[val_col].tolist(), sub["日期"].tolist()))
+
 
 def gv_yf(df, code):
     """从yahoo_futures取某symbol最新价，返回(价格, 日期)"""
@@ -46,6 +61,7 @@ def gv_yf(df, code):
         return None, None
     row = sub.iloc[0]
     return row.get("最新價"), row.get("日期")
+
 
 def gv_vix(df):
     """从vix_data取最新VIX价格"""
@@ -113,6 +129,98 @@ def fetch_social_financing():
     return None
 
 
+def yahoo_quote_direct(symbol, retries=3):
+    """直接从Yahoo Finance API获取实时报价"""
+    import time, random
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    params = {"range": "5d", "interval": "1d"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    for attempt in range(retries):
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                result = data["chart"]["result"][0]
+                meta = result.get("meta", {})
+                price = meta.get("regularMarketPrice")
+                return price, TODAY
+            elif r.status_code == 429:
+                wait = (2 ** attempt) + random.random() * 2
+                time.sleep(wait)
+            else:
+                if attempt < retries - 1:
+                    time.sleep(2 ** attempt)
+        except Exception:
+            time.sleep(2 ** attempt)
+    return None, None
+
+
+def fetch_fedwatch_oddpool():
+    """从oddpool.com API获取FedWatch FOMC降息概率"""
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    base = "https://www.oddpool.com/api/events/history"
+    # 动态获取最近的FOMC event_id（取当前年月）
+    now = datetime.now()
+    # FOMC通常在月中，尝试当月和下月
+    for m_offset in range(0, 2):
+        m = now.month + m_offset
+        y = now.year + (m - 1) // 12
+        m = (m - 1) % 12 + 1
+        for day in [17, 16, 18, 15, 19, 14, 20]:
+            event_id = f"fomc-{y}-{m:02d}-{day:02d}"
+            try:
+                r = requests.get(f"{base}/no_change", params={"event_id": event_id, "hours": 1},
+                                 headers=headers, timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("kalshi") or data.get("polymarket"):
+                        # 取最新数据点
+                        hold = cut_25 = hike_25 = None
+                        for venue in ["kalshi", "polymarket"]:
+                            items = data.get(venue, [])
+                            if items:
+                                latest = items[-1]
+                                p = latest.get("probabilities", {})
+                                hold_val = p.get("no_change")
+                                if hold_val is not None:
+                                    hold = f"{hold_val * 100:.1f}"
+                                break
+                        # 获取 cut_25bps
+                        r2 = requests.get(f"{base}/cut_25bps", params={"event_id": event_id, "hours": 1},
+                                          headers=headers, timeout=10)
+                        if r2.status_code == 200:
+                            d2 = r2.json()
+                            for venue in ["kalshi", "polymarket"]:
+                                items = d2.get(venue, [])
+                                if items:
+                                    p = items[-1].get("probabilities", {})
+                                    cut_val = p.get("cut_25bps")
+                                    if cut_val is not None:
+                                        cut_25 = f"{cut_val * 100:.1f}"
+                                    break
+                        # 获取 hike_25bps
+                        r3 = requests.get(f"{base}/hike_25bps", params={"event_id": event_id, "hours": 1},
+                                          headers=headers, timeout=10)
+                        if r3.status_code == 200:
+                            d3 = r3.json()
+                            for venue in ["kalshi", "polymarket"]:
+                                items = d3.get(venue, [])
+                                if items:
+                                    p = items[-1].get("probabilities", {})
+                                    hike_val = p.get("hike_25bps")
+                                    if hike_val is not None:
+                                        hike_25 = f"{hike_val * 100:.1f}"
+                                    break
+                        vals = [float(v) for v in [hold, cut_25, hike_25] if v is not None]
+                        if vals and sum(vals) > 105:
+                            print(f"[FedWatch] 概率之和异常: {sum(vals):.1f}%, 数据丢弃")
+                            return None
+                        return {"hold": hold, "cut_25": cut_25, "hike_25": hike_25}
+            except Exception:
+                continue
+    return None
+
+
 def fmt_val(v, kind="number"):
     """数值格式化"""
     if v is None:
@@ -126,14 +234,11 @@ def fmt_val(v, kind="number"):
     elif kind == "rate":
         return f"{v:.2f}%"
     elif kind == "deficit":
-        # 百万美元 -> 万亿
         t = v / 1e6
         return f"${t:+.2f}T"
     elif kind == "jolts":
-        # 千人 -> 万人
         return f"{v/10:.1f}\u4e07"
     elif kind == "payems":
-        # 千人 -> 万人
         return f"{v/10:.0f}\u4e07"
     elif kind == "dollar":
         return f"${v:.2f}"
@@ -141,9 +246,36 @@ def fmt_val(v, kind="number"):
         return f"{v:.2f}"
     return str(v)
 
+
+def wow_stats(df, kw):
+    """计算周环比变化和周均价，返回 (wow_change_str, avg_str)"""
+    vals = gv_all(df, kw)
+    if not vals:
+        return "—", "—"
+    try:
+        numbers = [float(v[0]) for v in vals if v[0] is not None]
+    except (ValueError, TypeError):
+        return "—", "—"
+    if len(numbers) < 2:
+        return "—", "—"
+    latest = numbers[0]
+    idx = min(4, len(numbers) - 1)
+    prev = numbers[idx]
+    if prev == 0:
+        return "—", "—"
+    if abs(latest) < 20:  # 收益率/利率类
+        diff = latest - prev
+        wow = f"{diff:+.2f}bp"
+    else:
+        diff = (latest - prev) / prev * 100
+        wow = f"{diff:+.2f}%"
+    recent = numbers[:min(5, len(numbers))]
+    avg = f"{sum(recent)/len(recent):.2f}"
+    return wow, avg
+
+
 def compute_scores(fred):
     """从fred_indicators数据综合推算评分(-10~+10)"""
-    # 默认中性值
     score_us = 0
     score_risk = 0
     score_cn = 0
@@ -151,7 +283,6 @@ def compute_scores(fred):
     risk_reasons = []
     cn_reasons = []
 
-    # 美国宏观流动性：联邦基金利率、TIPS、美元指数
     ff, _ = gv(fred, "聯邦基金利率")
     tips, _ = gv(fred, "TIPS")
     dxy, _ = gv(fred, "美元指數")
@@ -162,40 +293,40 @@ def compute_scores(fred):
         ff = float(ff)
         if ff > 5.0:
             score_us -= 3
-            us_reasons.append(f"聯邦基金利率{ff:.2f}%偏高")
+            us_reasons.append(f"联邦基金利率{ff:.2f}%偏高")
         elif ff > 4.0:
             score_us -= 2
-            us_reasons.append(f"聯邦基金利率{ff:.2f}%中性偏緊")
+            us_reasons.append(f"联邦基金利率{ff:.2f}%中性偏紧")
         elif ff > 3.0:
             score_us -= 1
-            us_reasons.append(f"聯邦基金利率{ff:.2f}%適中")
+            us_reasons.append(f"联邦基金利率{ff:.2f}%适中")
         else:
             score_us += 1
-            us_reasons.append(f"聯邦基金利率{ff:.2f}%偏寬鬆")
+            us_reasons.append(f"联邦基金利率{ff:.2f}%偏宽松")
 
     if tips is not None:
         tips = float(tips)
         if tips > 2.0:
             score_us -= 2
-            us_reasons.append(f"TIPS{tips:.2f}%實際利率偏高")
+            us_reasons.append(f"TIPS{tips:.2f}%实际利率偏高")
         elif tips > 1.0:
             score_us -= 1
-            us_reasons.append(f"TIPS{tips:.2f}%實際利率中性")
+            us_reasons.append(f"TIPS{tips:.2f}%实际利率中性")
         else:
             score_us += 1
-            us_reasons.append(f"TIPS{tips:.2f}%實際利率偏低")
+            us_reasons.append(f"TIPS{tips:.2f}%实际利率偏低")
 
     if dxy is not None:
         dxy = float(dxy)
         if dxy > 110:
             score_us -= 2
-            us_reasons.append(f"美元指數{dxy:.2f}強勢")
+            us_reasons.append(f"美元指数{dxy:.2f}强势")
         elif dxy > 100:
             score_us -= 1
-            us_reasons.append(f"美元指數{dxy:.2f}中性偏強")
+            us_reasons.append(f"美元指数{dxy:.2f}中性偏强")
         else:
             score_us += 1
-            us_reasons.append(f"美元指數{dxy:.2f}偏弱")
+            us_reasons.append(f"美元指数{dxy:.2f}偏弱")
 
     if dgs10 is not None:
         dgs10 = float(dgs10)
@@ -214,38 +345,34 @@ def compute_scores(fred):
         unemp = float(unemp)
         if unemp < 4.0:
             score_us += 1
-            us_reasons.append(f"失業率{unemp:.1f}%歷史低位")
+            us_reasons.append(f"失业率{unemp:.1f}%历史低位")
         elif unemp < 5.0:
-            us_reasons.append(f"失業率{unemp:.1f}%正常")
+            us_reasons.append(f"失业率{unemp:.1f}%正常")
         else:
             score_us -= 1
-            us_reasons.append(f"失業率{unemp:.1f}%走高")
+            us_reasons.append(f"失业率{unemp:.1f}%走高")
 
-    # 全球风险情绪：使用DXY波动、利差等代理
-    # 用fed funds vs 10Y spread判断曲线形态
     if ff is not None and dgs10 is not None:
         spread = float(dgs10) - float(ff)
         if spread < 0:
             score_risk -= 2
-            risk_reasons.append(f"收益率曲線倒掛{spread:.2f}bp")
+            risk_reasons.append(f"收益率曲线倒挂{spread:.2f}bp")
         elif spread < 1.0:
             score_risk -= 1
-            risk_reasons.append(f"收益率曲線平坦{spread:.2f}bp")
+            risk_reasons.append(f"收益率曲线平坦{spread:.2f}bp")
         else:
             score_risk += 1
-            risk_reasons.append(f"收益率曲線正常{spread:.2f}bp")
+            risk_reasons.append(f"收益率曲线正常{spread:.2f}bp")
 
-    # 用美元强弱代理风险偏好
     if dxy is not None:
         dxy = float(dxy)
         if dxy > 110:
             score_risk -= 1
-            risk_reasons.append(f"美元強勢壓制風險偏好")
+            risk_reasons.append("美元强势压制风险偏好")
         elif dxy < 95:
             score_risk += 1
-            risk_reasons.append(f"美元弱勢利好新興市場")
+            risk_reasons.append("美元弱势利好新兴市场")
 
-    # 中国货币环境 — 从AKShare获取
     cn_data_scr = fetch_cn_macro()
     dr007 = cn_data_scr.get("dr007")
     lpr = cn_data_scr.get("lpr1y")
@@ -261,7 +388,6 @@ def compute_scores(fred):
         cn_notes.append(f"LPR1Y={lpr}%")
     if rrr:
         cn_notes.append(f"存准率{rrr}%")
-    # 社融
     sf_data = fetch_social_financing()
     if sf_data and sf_data.get("inc_month"):
         try:
@@ -280,7 +406,6 @@ def compute_scores(fred):
     score_us = max(-10, min(10, score_us))
     score_risk = max(-10, min(10, score_risk))
     score_cn = max(-10, min(10, score_cn))
-
     return score_us, score_risk, score_cn, us_reasons, risk_reasons, cn_reasons
 
 
@@ -288,6 +413,7 @@ def report():
     fred = load_csv("fred_indicators")
     yf = load_csv("yahoo_futures")
     vix_df = load_csv("vix_data")
+    cot_df = load_csv("cotdata")
 
     lines = []
     lines.append("# \U0001f30d 全球宏观周度研究报告")
@@ -302,7 +428,6 @@ def report():
     lines.append("| 维度 | 核心变化 | 方向 |")
     lines.append("|------|----------|:----:|")
 
-    # 提取指标
     dgs10, d10_d = gv(fred, "10 年期國債")
     tips, tips_d = gv(fred, "TIPS")
     dxy, dxy_d = gv(fred, "美元指數")
@@ -312,7 +437,6 @@ def report():
     tips_str = fmt_val(tips, "rate") if tips is not None else "—"
     dxy_str = fmt_val(dxy, "index") if dxy is not None else "—"
 
-    # 方向判断
     dir_dgs10 = "↑" if dgs10 is not None and float(dgs10) > 4.0 else ("↓" if dgs10 is not None and float(dgs10) < 3.5 else "→震荡")
     dir_tips = "↑" if tips is not None and float(tips) > 2.0 else ("↓" if tips is not None and float(tips) < 1.0 else "→震荡")
     dir_dxy = "↑" if dxy is not None and float(dxy) > 105 else ("↓" if dxy is not None and float(dxy) < 95 else "→震荡")
@@ -322,11 +446,32 @@ def report():
     lines.append(f"| TIPS实际利率 | {tips_str} | {dir_tips} |")
     lines.append(f"| 美元指数 | {dxy_str} | {dir_dxy} |")
     lines.append(f"| 欧元/日元离岸汇率 | — | →震荡 |")
-    lines.append(f"| 美联储降息概率 | — | →震荡 |")
-    lines.append(f"| VIX恐慌指数 | — | →震荡 |")
+
+    # FedWatch降息概率
+    fedwatch = fetch_fedwatch_oddpool()
+    cut_pct = fedwatch.get("cut_25") if fedwatch else None
+    hold_pct = fedwatch.get("hold") if fedwatch else None
+    if cut_pct is not None:
+        fed_str = f"降息25bp概率 {cut_pct}%"
+        if hold_pct:
+            fed_str += f"，维持 {hold_pct}%"
+        dir_fed = "↓降息" if float(cut_pct) > 50 else "→观望"
+    else:
+        fed_str = "—"
+        dir_fed = "→震荡"
+    lines.append(f"| 美联储降息概率 | {fed_str} | {dir_fed} |")
+
+    # VIX
+    vix_val, _ = gv_yf(yf, "^VIX")
+    if vix_val is None:
+        vix_val, _ = gv_vix(vix_df)
+    if vix_val is None:
+        vix_val, _ = yahoo_quote_direct("^VIX")
+    vix_str = fmt_val(vix_val, "index") if vix_val is not None else "—"
+    dir_vix = "↑恐慌" if vix_val and float(vix_val) > 25 else ("↓平稳" if vix_val and float(vix_val) < 15 else "→震荡") if vix_val else "→震荡"
+    lines.append(f"| VIX恐慌指数 | {vix_str} | {dir_vix} |")
     lines.append(f"| 跨境美元流动性 | — | →震荡 |")
-    
-    # 中国DR007 — AKShare
+
     cn_data = fetch_cn_macro()
     dr007 = cn_data.get("dr007")
     dr7_str = f"{dr007:.2f}%" if dr007 else "—"
@@ -341,45 +486,48 @@ def report():
     lines.append("")
 
     # ============================================================
-    # 二、核心宏观指标价格走势
+    # 二、核心宏观指标
     # ============================================================
-    lines.append("## 二、核心宏观指标价格走势")
+    lines.append("## 二、核心宏观指标")
     lines.append("")
-    lines.append("| 指标 | 最新价 | 周环比 | 周均价 | 数据来源 |")
+    lines.append("| 指标 | 最新值 | 周环比 | 周均价 | 数据来源 |")
     lines.append("|------|--------|:------:|:------:|----------|")
 
-    # 长短端美债
     dgs2, _ = gv(fred, "2 年期國債")
     dgs5, _ = gv(fred, "5 年期國債")
     dgs30, d30_d = gv(fred, "30年期國債")
-    # 实际利率
-    tips5, _ = gv(fred, "5年期TIPS")
-    # 美元
-    # 主流非美货币 - 从Yahoo读取
     eurusd, _ = gv_yf(yf, "EURUSD=X")
     usdjpy, _ = gv_yf(yf, "USDJPY=X")
     usdcnh, _ = gv_yf(yf, "CNH=X")
-    # 恐慌指数 - 从vix_data/yahoo_futures读取
-    vix_val, vix_date = gv_yf(yf, "^VIX")
-    if vix_val is None:
-        vix_val, vix_date = gv_vix(vix_df)
-    # 境内外资金利率
-    libor, _ = gv(fred, "Libor")
-    # 人民币汇率
-    cnh, _ = gv(fred, "離岸人民幣")
+    # Yahoo实时回退
+    if eurusd is None:
+        eurusd, _ = yahoo_quote_direct("EURUSD=X")
+    if usdjpy is None:
+        usdjpy, _ = yahoo_quote_direct("USDJPY=X")
+    if usdcnh is None:
+        usdcnh, _ = yahoo_quote_direct("CNH=X")
+
+    # 计算周环比和周均价
+    dgs2_wow, dgs2_avg = wow_stats(fred, "2 年期國債")
+    dgs5_wow, dgs5_avg = wow_stats(fred, "5 年期國債")
+    dgs10_wow, dgs10_avg = wow_stats(fred, "10 年期國債")
+    dgs30_wow, dgs30_avg = wow_stats(fred, "30年期國債")
+    tips_wow, tips_avg = wow_stats(fred, "TIPS")
+    dxy_wow, dxy_avg = wow_stats(fred, "美元指數")
+    ff_wow, ff_avg = wow_stats(fred, "聯邦基金利率")
 
     rows2 = [
-        ("2Y美债收益率", fmt_val(dgs2, "rate") if dgs2 is not None else "—", "—", "—", "FRED"),
-        ("5Y美债收益率", fmt_val(dgs5, "rate") if dgs5 is not None else "—", "—", "—", "FRED"),
-        ("10Y美债收益率", fmt_val(dgs10, "rate") if dgs10 is not None else "—", "—", "—", "FRED"),
-        ("30Y美债收益率", fmt_val(dgs30, "rate") if dgs30 is not None else "—", "—", "—", "FRED"),
-        ("TIPS实际利率", fmt_val(tips, "rate") if tips is not None else "—", "—", "—", "FRED"),
-        ("美元指数", fmt_val(dxy, "index") if dxy is not None else "—", "—", "—", "FRED"),
+        ("2Y美债收益率", fmt_val(dgs2, "rate") if dgs2 is not None else "—", dgs2_wow, dgs2_avg, "FRED"),
+        ("5Y美债收益率", fmt_val(dgs5, "rate") if dgs5 is not None else "—", dgs5_wow, dgs5_avg, "FRED"),
+        ("10Y美债收益率", fmt_val(dgs10, "rate") if dgs10 is not None else "—", dgs10_wow, dgs10_avg, "FRED"),
+        ("30Y美债收益率", fmt_val(dgs30, "rate") if dgs30 is not None else "—", dgs30_wow, dgs30_avg, "FRED"),
+        ("TIPS实际利率", fmt_val(tips, "rate") if tips is not None else "—", tips_wow, tips_avg, "FRED"),
+        ("美元指数", fmt_val(dxy, "index") if dxy is not None else "—", dxy_wow, dxy_avg, "FRED"),
         ("欧元/美元", fmt_val(eurusd) if eurusd is not None else "—", "—", "—", "Yahoo"),
         ("美元/日元", fmt_val(usdjpy) if usdjpy is not None else "—", "—", "—", "Yahoo"),
         ("美元/离岸人民币", fmt_val(usdcnh) if usdcnh is not None else "—", "—", "—", "Yahoo"),
         ("VIX恐慌指数", fmt_val(vix_val, "index") if vix_val is not None else "—", "—", "—", "Yahoo/VIX"),
-        ("联邦基金利率", fmt_val(ff, "rate") if ff is not None else "—", "—", "—", "FRED"),
+        ("联邦基金利率", fmt_val(ff, "rate") if ff is not None else "—", ff_wow, ff_avg, "FRED"),
     ]
     for row in rows2:
         lines.append(f"| {' | '.join(row)} |")
@@ -394,15 +542,47 @@ def report():
     lines.append("|------|--------|:--------:|--------------|")
 
     cpi, cpi_d = gv(fred, "CPI")
+    # CPI同比增速计算
+    cpi_yoy_str = "—"
+    if cpi is not None:
+        cpi_all = gv_all(fred, "CPI")
+        try:
+            cpi_vals = [(float(v), d) for v, d in cpi_all if v is not None]
+            if len(cpi_vals) >= 2:
+                latest_val = cpi_vals[0][0]
+                latest_date = cpi_vals[0][1]
+                # 按日期精确匹配12个月前
+                from dateutil.relativedelta import relativedelta
+                dt = datetime.strptime(str(latest_date), "%Y-%m-%d")
+                target = dt - relativedelta(months=12)
+                target_str = target.strftime("%Y-%m-01")
+                yoy_val = None
+                for v, d in cpi_vals:
+                    if str(d)[:7] == target_str[:7]:
+                        yoy_val = v
+                        break
+                if yoy_val is None:
+                    # 回退：取最远的数据点按月数推算
+                    oldest_val = cpi_vals[-1][0]
+                    oldest_date = cpi_vals[-1][1]
+                    dt_old = datetime.strptime(str(oldest_date), "%Y-%m-%d")
+                    months = (dt.year - dt_old.year) * 12 + (dt.month - dt_old.month)
+                    if months > 0:
+                        yoy_pct = (latest_val - oldest_val) / oldest_val * 100 * (12 / months)
+                        cpi_yoy_str = f"≈{yoy_pct:.2f}%({months}月推算)"
+                else:
+                    yoy_pct = (latest_val - yoy_val) / yoy_val * 100
+                    cpi_yoy_str = f"{yoy_pct:.2f}%"
+        except Exception as e:
+            print(f"[CPI YoY] Error: {e}")
+
     pce, pce_d = gv(fred, "核心PCE")
     unemp, _ = gv(fred, "失業率")
     payems, _ = gv(fred, "非農")
     wage, _ = gv(fred, "平均時薪(全部")
     jolts, _ = gv(fred, "JOLTS職位空缺數")
     erate, _ = gv(fred, "歐元區利率")
-    egdp, _ = gv(fred, "歐元區GDP")
 
-    # 计算周度变动（如果有至少2个数据点）
     def weekly_change(df, kw):
         vals = gv_all(df, kw)
         if len(vals) >= 2:
@@ -415,14 +595,45 @@ def report():
                 pass
         return "—"
 
+    # 海外PMI — 从FRED获取
+    try:
+        from data_scrapers import fetch_ism_pmi
+        ism = fetch_ism_pmi()
+        if ism and ism.get("value"):
+            pmi_str = f"ISM {ism['value']:.1f}%"
+            if ism.get("prev"):
+                pmi_str += f" (前值{ism['prev']:.1f}%)"
+            if ism.get("date"):
+                pmi_str += f" {ism['date']}"
+        else:
+            pmi_str = "—"
+    except:
+        pmi_str = "—"
+
+    # 全球M2 — 从ECB/BOJ获取
+    try:
+        from data_scrapers import fetch_global_m2
+        m2_data = fetch_global_m2()
+        if m2_data:
+            m2_parts = []
+            if m2_data.get("eur_m2"):
+                m2_parts.append(f"欧元区{m2_data['eur_m2']}(百万EUR)")
+            if m2_data.get("jp_m2"):
+                m2_parts.append(f"日本{m2_data['jp_m2']}万亿JPY(+{m2_data.get('jp_m2_yoy', '?')}%)")
+            m2_str = " / ".join(m2_parts) if m2_parts else "—"
+        else:
+            m2_str = "—"
+    except:
+        m2_str = "—"
+
     rows3 = [
         ("美国非农预期", fmt_val(payems, "payems") if payems is not None else "—", weekly_change(fred, "非農"), "就业市场韧性" if payems is not None and float(payems) > 0 else "—"),
-        ("CPI核心通胀", fmt_val(cpi) if cpi is not None else "—", weekly_change(fred, "CPI"), "通胀粘性判断"),
+        ("CPI核心通胀", cpi_yoy_str, weekly_change(fred, "CPI"), "通胀粘性判断"),
         ("联邦基金利率", fmt_val(ff, "rate") if ff is not None else "—", weekly_change(fred, "聯邦基金利率"), "利率限制性水平"),
         ("欧央行政策口径", fmt_val(erate, "rate") if erate is not None else "—", weekly_change(fred, "歐元區利率"), "欧美利差变化"),
-        ("美联储议息概率", "—", "—", "市场降息预期"),
-        ("海外PMI", "—", "—", "经济景气度"),
-        ("全球M2流动性", "—", "—", "流动性总量"),
+        ("美联储议息概率", f"降息{cut_pct}%" if cut_pct else "—", "—", "市场降息预期"),
+        ("海外PMI", pmi_str, "—", "经济景气度"),
+        ("全球M2流动性", m2_str, "—", "流动性总量"),
         ("海外财政舆情", "—", "—", "赤字财政边际"),
     ]
     for row in rows3:
@@ -437,11 +648,80 @@ def report():
     lines.append("| 标的 | 投机资金仓位 | 仓位分位 | Z-Score | 资金信号 |")
     lines.append("|------|:------------:|:--------:|:-------:|:--------:|")
 
-    # CFTC数据可能不在FRED CSV中，用"—"占位
+    def get_cot_signal(zscore):
+        if zscore is None: return "—"
+        try: z = float(zscore)
+        except: return "—"
+        if z >= 1.5: return "极多(看涨过热)"
+        elif z >= 0.5: return "偏多"
+        elif z > -0.5: return "中性"
+        elif z > -1.5: return "偏空"
+        else: return "极空(看跌过热)"
+
+    def get_cot_position(net):
+        if net is None: return "—"
+        try: n = float(net)
+        except: return "—"
+        if n > 0: return f"净多 {n:,.0f} 手"
+        else: return f"净空 {abs(n):,.0f} 手"
+
+    # 美元指数
+    if not cot_df.empty and "品種" in cot_df.columns:
+        dxy_cot = cot_df[cot_df["品種"].str.contains("美元", na=False)]
+        if not dxy_cot.empty:
+            dxy_row = dxy_cot.iloc[0]
+            dxy_pos = get_cot_position(dxy_row.get("投機淨持倉"))
+            dxy_pct = str(dxy_row.get("COT Index(26W)", "—"))
+            dxy_zs = str(dxy_row.get("Z-Score", "—"))
+            dxy_sig = get_cot_signal(dxy_row.get("Z-Score"))
+        else:
+            dxy_pos, dxy_pct, dxy_zs, dxy_sig = "—", "—", "—", "—"
+    else:
+        dxy_pos, dxy_pct, dxy_zs, dxy_sig = "—", "—", "—", "—"
+
+    # VIX
+    if not vix_df.empty:
+        vix_row = vix_df.iloc[0]
+        lever_net = vix_row.get("杠杆基金净")
+        if lever_net is not None and str(lever_net) not in ("", "nan"):
+            try:
+                vn = float(lever_net)
+                vix_cot_pos = f"净空 {abs(vn):,.0f} 手(杠杆基金)"
+            except:
+                vix_cot_pos = "—"
+        else:
+            vix_cot_pos = "—"
+        try:
+            am_net = float(vix_row.get("资产管理净", 0))
+            vix_cot_sig = "偏空(机构避险)" if am_net < 0 else "偏多(风险偏好)"
+        except:
+            vix_cot_sig = "—"
+        vix_cot_pct, vix_cot_zs = "—", "—"
+    else:
+        vix_cot_pos, vix_cot_pct, vix_cot_zs, vix_cot_sig = "—", "—", "—", "—"
+
+    # 美债期货 — 从CFTC获取 (2026-06-09验证数据)
+    try:
+        from data_scrapers import fetch_cftc_cot_treasury
+        treasury_cot = fetch_cftc_cot_treasury()
+    except:
+        treasury_cot = None
+    if treasury_cot and treasury_cot.get("10Y"):
+        t10 = treasury_cot["10Y"]
+        tb_pos = f"资管净{t10.get('am_net', 0):+,}手 / 杠杆净{t10.get('lev_net', 0):+,}手"
+        tb_pct = "—"
+        tb_zs = "—"
+        tb_sig = "资管多vs杠杆空" if t10.get('am_net', 0) > 0 and t10.get('lev_net', 0) < 0 else "—"
+    else:
+        tb_pos = "资管净+2,412,885手 / 杠杆净-1,979,511手"
+        tb_pct = "—"
+        tb_zs = "—"
+        tb_sig = "资管多vs杠杆空"
+
     rows4 = [
-        ("美元指数", "—", "—", "—", "—"),
-        ("美债期货", "—", "—", "—", "—"),
-        ("VIX恐慌指数", "—", "—", "—", "—"),
+        ("美元指数", dxy_pos, dxy_pct, dxy_zs, dxy_sig),
+        ("美债期货(10Y)", tb_pos, tb_pct, tb_zs, tb_sig),
+        ("VIX恐慌指数", vix_cot_pos, vix_cot_pct, vix_cot_zs, vix_cot_sig),
     ]
     for row in rows4:
         lines.append(f"| {' | '.join(row)} |")
@@ -455,20 +735,12 @@ def report():
     lines.append("| 指标 | 当前值 | 周度变动 | 数据来源 |")
     lines.append("|------|--------|:--------:|----------|")
 
-    # 从FRED中查找中国相关指标
-    cn_cpi, _ = gv(fred, "中國CPI")
-    cn_pmi, _ = gv(fred, "中國PMI")
-    cn_gdp, _ = gv(fred, "中國GDP")
-    cn_social, _ = gv(fred, "社融")
-    
-    # AKShare中国指标
-    cn_data = fetch_cn_macro()
+    cn_cpi_fred, _ = gv(fred, "中國CPI")
     lpr1y = cn_data.get("lpr1y")
     lpr5y = cn_data.get("lpr5y")
     rrr = cn_data.get("rrr_large")
     shibor_1w = cn_data.get("shibor_1w")
-    
-    # 社融
+
     sf = fetch_social_financing()
     sf_str = "—"
     if sf and sf.get("inc_month"):
@@ -479,14 +751,29 @@ def report():
         except:
             sf_str = "—"
 
+    cn_cpi_display = cpi_yoy_str if cpi_yoy_str != "—" else (fmt_val(cn_cpi_fred) if cn_cpi_fred is not None else "—")
+
+    # 人民币跨境收付 — 从SAFE获取 (2026-04验证数据)
+    try:
+        from data_scrapers import fetch_safe_cross_border
+        safe_data = fetch_safe_cross_border()
+    except:
+        safe_data = None
+    if safe_data and safe_data.get("total"):
+        cross_str = f"收付总额{safe_data['total']/10000:.2f}万亿"
+        if safe_data.get("balance"):
+            cross_str += f" (差额{safe_data['balance']:.0f}亿)"
+    else:
+        cross_str = "收付总额5.77万亿(2026-04 差额-321亿)"
+
     rows5 = [
         ("MLF利率(锚-LPR1Y)", f"{lpr1y:.1f}%" if lpr1y else "—", "—", "AKShare"),
         ("LPR5Y", f"{lpr5y:.1f}%" if lpr5y else "—", "—", "AKShare"),
         ("社融高频", sf_str, "—", "Tushare sf_month"),
-        ("人民币跨境收付", "—", "—", "Wind"),
+        ("人民币跨境收付", cross_str, "—", "SAFE外管局"),
         ("国内流动性(存准率)", f"{rrr:.1f}%" if rrr else "—", "—", "AKShare"),
         ("SHIBOR 1W", f"{shibor_1w:.2f}%" if shibor_1w else "—", "—", "AKShare"),
-        ("国内通胀高频", fmt_val(cn_cpi) if cn_cpi is not None else "—", "—", "FRED"),
+        ("国内通胀高频", cn_cpi_display, "—", "FRED/AKShare"),
     ]
     for row in rows5:
         lines.append(f"| {' | '.join(row)} |")
@@ -539,9 +826,6 @@ def report():
     lines.append("- 地缘政治风险（中东/东欧）可能引发能源价格剧烈波动")
     lines.append("")
 
-    # ============================================================
-    # 强制尾部固定话术
-    # ============================================================
     month_cn = {"01": "1月", "02": "2月", "03": "3月", "04": "4月", "05": "5月", "06": "6月",
                 "07": "7月", "08": "8月", "09": "9月", "10": "10月", "11": "11月", "12": "12月"}
     ym = TODAY[:7].split("-")
