@@ -127,11 +127,62 @@ def fmt_chg(chg):
     arrow = "↑" if chg > 0 else "↓" if chg < 0 else "→"
     return f"{arrow} {abs(chg):.0f}"
 
+def yahoo_quote_direct(symbol, retries=3):
+    """Yahoo Finance 直连API — CSV数据过期时的fallback"""
+    import time, random
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    params = {"range": "5d", "interval": "1d"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    for attempt in range(retries):
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                result = data["chart"]["result"][0]
+                meta = result.get("meta", {})
+                price = meta.get("regularMarketPrice")
+                prev = meta.get("chartPreviousClose")
+                return price, prev, TODAY
+            elif r.status_code == 429:
+                time.sleep((2 ** attempt) + random.random() * 2)
+        except Exception:
+            time.sleep(2 ** attempt)
+    return None, None, None
+
 def report():
     yahoo = load("yahoo_futures")
     cot = load("cotdata")
     fred = load("fred_indicators")
     agsi = load("agsi_eu_gas")
+
+    # Yahoo CSV数据时效检查 — 如果CSV最新日期落后2天以上，用直连API补充
+    yahoo_stale = True
+    if yahoo is not None and not yahoo.empty and "日期" in yahoo.columns:
+        try:
+            latest_yahoo_date = yahoo["日期"].max()
+            from datetime import datetime as dt
+            days_diff = (dt.strptime(TODAY, "%Y-%m-%d") - dt.strptime(str(latest_yahoo_date), "%Y-%m-%d")).days
+            yahoo_stale = days_diff > 2  # 超过2天视为过期(覆盖周末)
+        except Exception:
+            yahoo_stale = days_diff >= 2  # 超过2天视为过期(覆盖周末)
+
+    if yahoo_stale:
+        print(f"[能源报告] Yahoo CSV数据过期({days_diff}天)，使用直连API获取最新价格...")
+        for sym, keyword in [("CL=F", "WTI"), ("BZ=F", "Brent"), ("NG=F", "天然氣")]:
+            price, prev, date = yahoo_quote_direct(sym)
+            if price is not None:
+                # 用直连数据覆盖/补充
+                import pandas as pd
+                new_row = pd.DataFrame([{
+                    "來源": "Yahoo Finance (直连)", "品種": f"{keyword}期货",
+                    "代碼": sym, "日期": date, "最新價": price,
+                    "前收盤": prev, "抓取日": TODAY
+                }])
+                if yahoo is not None and not yahoo.empty:
+                    yahoo = pd.concat([yahoo, new_row], ignore_index=True)
+                else:
+                    yahoo = new_row
+                print(f"  ✅ {keyword}: ${price} ({date})")
     
     lines = []
     lines.append("# ⛽ 全球能源市场周度研究报告")

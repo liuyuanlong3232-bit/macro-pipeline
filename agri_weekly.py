@@ -150,6 +150,50 @@ def global_agri():
     yahoo = load("yahoo_futures")
     cot = load("cotdata")
 
+    # Yahoo CSV数据时效检查 — 超过2天视为过期
+    yahoo_stale = True
+    if yahoo is not None and not yahoo.empty and "日期" in yahoo.columns:
+        try:
+            latest_date = yahoo["日期"].max()
+            from datetime import datetime as dt
+            days_diff = (dt.strptime(TODAY, "%Y-%m-%d") - dt.strptime(str(latest_date), "%Y-%m-%d")).days
+            yahoo_stale = days_diff > 2
+        except Exception:
+            yahoo_stale = True
+
+    if yahoo_stale:
+        print(f"[农业报告] Yahoo CSV数据过期，使用直连API获取最新价格...")
+        agri_symbols = [
+            ("ZC=F", "玉米期貨", "玉米"), ("ZS=F", "大豆期貨", "大豆"),
+            ("ZW=F", "小麥期貨", "小麥"), ("ZL=F", "豆油期貨", "豆油"),
+            ("ZM=F", "豆粕期貨", "豆粕"), ("CT=F", "棉花期貨", "棉花"),
+            ("SB=F", "糖期貨", "糖"),
+        ]
+        for sym, name, keyword in agri_symbols:
+            try:
+                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}"
+                params = {"range": "5d", "interval": "1d"}
+                headers = {"User-Agent": "Mozilla/5.0"}
+                r = requests.get(url, params=params, headers=headers, timeout=15)
+                if r.status_code == 200:
+                    data = r.json()
+                    meta = data["chart"]["result"][0].get("meta", {})
+                    price = meta.get("regularMarketPrice")
+                    prev = meta.get("chartPreviousClose")
+                    if price is not None:
+                        chg_pct = ((price - prev) / prev * 100) if prev else 0
+                        new_row = pd.DataFrame([{
+                            "來源": "Yahoo Finance (直连)", "品種": name,
+                            "代碼": sym, "日期": TODAY, "最新價": price,
+                            "前收盤": prev, "日漲跌幅%": f"{chg_pct:.3f}", "抓取日": TODAY
+                        }])
+                        if yahoo is not None and not yahoo.empty:
+                            yahoo = pd.concat([yahoo, new_row], ignore_index=True)
+                        else:
+                            yahoo = new_row
+            except Exception:
+                pass
+
     # ── 导入data_scrapers（提前导入，供摘要表和供需分析使用）──
     import sys, os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

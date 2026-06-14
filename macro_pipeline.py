@@ -39,7 +39,37 @@ from dotenv import load_dotenv
 
 # ─── 配置 ───────────────────────────────────────────────────
 ENV_PATH = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env"
-load_dotenv(ENV_PATH)
+load_dotenv(ENV_PATH, override=True)
+
+# 强制从.env文件读取API key（覆盖可能残留的旧环境变量）
+def _load_env_key(key_name):
+    """从.env文件直接读取key值，确保不受环境变量污染"""
+    try:
+        with open(ENV_PATH) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(f"{key_name}=") and not line.startswith("#"):
+                    return line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+    return os.getenv(key_name, "")
+
+FRED_API_KEY = _load_env_key("FRED_API_KEY")
+FRED_API_KEY = _load_env_key("FRED_API_KEY")
+EIA_API_KEY = _load_env_key("EIA_API_KEY")
+print(f"[DEBUG] FRED_API_KEY loaded: len={len(FRED_API_KEY)}, first8={FRED_API_KEY[:8] if FRED_API_KEY else 'EMPTY'}")
+
+# 终极兜底
+if not FRED_API_KEY or len(FRED_API_KEY) != 32:
+    try:
+        with open(ENV_PATH) as _f:
+            for _line in _f:
+                if _line.strip().startswith("FRED_API_KEY="):
+                    FRED_API_KEY = _line.strip().split("=", 1)[1]
+                    os.environ["FRED_API_KEY"] = FRED_API_KEY
+                    break
+    except Exception:
+        pass
 
 # ─── 代理配置 (v2rayN/Clash 兼容) ──────────────────────────
 # 如果系统有代理但环境变量没设，自动检测
@@ -124,7 +154,7 @@ def save_csv(df: pd.DataFrame, name: str, subdir: str = "csv"):
 
 # ─── 1. FRED (美聯儲經濟數據) ──────────────────────────────
 
-FRED_API_KEY = os.getenv("FRED_API_KEY", "")
+# FRED_API_KEY 已在文件顶部通过 _load_env_key 加载
 FRED_BASE = "https://api.stlouisfed.org/fred"
 
 # 常用 FRED 系列 ID（可擴展）
@@ -166,6 +196,7 @@ def fetch_fred():
     """抓取 FRED 關鍵經濟指標"""
     log.info("📊 正在抓取 FRED 經濟數據...")
     results = []
+    failed_series = []
     for series_id, name in FRED_SERIES.items():
         params = {
             "series_id": series_id,
@@ -185,11 +216,17 @@ def fetch_fred():
                         "數值": float(obs["value"]),
                         "抓取日": TODAY,
                     })
+        else:
+            failed_series.append(f"{series_id}({name})")
+        time.sleep(0.3)  # 防止FRED限流
 
     df = pd.DataFrame(results)
+    if failed_series:
+        log.warning(f"⚠️ FRED {len(failed_series)}个系列获取失败: {', '.join(failed_series)}")
     if not df.empty:
         df = df.sort_values(["系列ID", "日期"], ascending=[True, False])
         save_csv(df, "fred_indicators")
+        log.info(f"  ✅ FRED {len(df)} 行数据, {len(FRED_SERIES)-len(failed_series)}/{len(FRED_SERIES)} 系列成功")
     else:
         log.warning("⚠️ FRED 未返回數據，檢查 API Key")
     return df
@@ -362,10 +399,10 @@ def fetch_cftc():
     log.info("📈 正在抓取 CFTC COT 持倉數據...")
     results = []
 
-    # 通過公共 COT 報告解析 (CFTC 公開 CSV)
-    # CFTC 提供公開 FTP: https://www.cftc.gov/dea/futures/dea.txt
+    # 通過公共 COT 報告解析 (CFTC 公開報告)
+    # CFTC dea.txt 已失效(404)，改用 FinFutWk.txt
     try:
-        resp = requests.get("https://www.cftc.gov/dea/futures/dea.txt", timeout=30)
+        resp = requests.get("https://www.cftc.gov/dea/newcot/FinFutWk.txt", timeout=30)
         if resp.status_code == 200:
             lines = resp.text.split("\n")
             # 找關鍵品種
@@ -537,52 +574,99 @@ def fetch_estat():
 # ─── 11. FedWatch (FOMC利率概率) ──────────────────────────
 
 def fetch_fedwatch():
-    """从 Oddpool 抓取 FedWatch FOMC 利率概率数据"""
+    """从 Oddpool API 抓取 FedWatch FOMC 利率概率数据"""
     log.info("🏛️ 正在抓取 FedWatch FOMC 利率概率...")
     results = []
 
-    data = safe_get("https://www.oddpool.com/fed-market-watch", timeout=15)
-    import re
-    
-    if data and isinstance(data, str):
-        # 解析当前利率
-        m = re.search(r'Fed Funds Rate[|].*?([\d.]+)%', data)
-        current_rate = m.group(1) if m else "?"
-        
-        # 解析维持/加息/降息概率
-        m = re.search(r'Fed maintains rate.*?([\d.]+)%', data)
-        hold = m.group(1) if m else "?"
-        
-        m = re.search(r'Hike 25bps.*?([\d.]+)%', data)
-        hike = m.group(1) if m else "?"
-        
-        m = re.search(r'Cut 25bps.*?([\d.]+)%', data)
-        cut = m.group(1) if m else "?"
-        
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    base = "https://www.oddpool.com/api/events/history"
+
+    # 动态获取最近的FOMC event_id
+    now = datetime.now()
+    hold = cut_25 = hike_25 = None
+    event_id_found = None
+
+    for m_offset in range(0, 2):
+        m = now.month + m_offset
+        y = now.year + (m - 1) // 12
+        m = (m - 1) % 12 + 1
+        for day in [17, 16, 18, 15, 19, 14, 20]:
+            event_id = f"fomc-{y}-{m:02d}-{day:02d}"
+            try:
+                r = requests.get(f"{base}/no_change", params={"event_id": event_id, "hours": 1},
+                                 headers=headers, timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("kalshi") or data.get("polymarket"):
+                        event_id_found = event_id
+                        # 取最新数据点 - no_change (维持)
+                        for venue in ["kalshi", "polymarket"]:
+                            items = data.get(venue, [])
+                            if items:
+                                p = items[-1].get("probabilities", {})
+                                hold_val = p.get("no_change")
+                                if hold_val is not None:
+                                    hold = f"{hold_val * 100:.1f}"
+                                break
+                        # cut_25bps
+                        r2 = requests.get(f"{base}/cut_25bps", params={"event_id": event_id, "hours": 1},
+                                          headers=headers, timeout=10)
+                        if r2.status_code == 200:
+                            d2 = r2.json()
+                            for venue in ["kalshi", "polymarket"]:
+                                items = d2.get(venue, [])
+                                if items:
+                                    p = items[-1].get("probabilities", {})
+                                    cut_val = p.get("cut_25bps")
+                                    if cut_val is not None:
+                                        cut_25 = f"{cut_val * 100:.1f}"
+                                    break
+                        # hike_25bps
+                        r3 = requests.get(f"{base}/hike_25bps", params={"event_id": event_id, "hours": 1},
+                                          headers=headers, timeout=10)
+                        if r3.status_code == 200:
+                            d3 = r3.json()
+                            for venue in ["kalshi", "polymarket"]:
+                                items = d3.get(venue, [])
+                                if items:
+                                    p = items[-1].get("probabilities", {})
+                                    hike_val = p.get("hike_25bps")
+                                    if hike_val is not None:
+                                        hike_25 = f"{hike_val * 100:.1f}"
+                                    break
+                        # 校验概率之和
+                        vals = [float(v) for v in [hold, cut_25, hike_25] if v is not None]
+                        if vals and sum(vals) > 105:
+                            log.warning(f"[FedWatch] 概率之和异常: {sum(vals):.1f}%, 数据丢弃")
+                            return None
+                        break  # 找到数据，退出day循环
+            except Exception:
+                continue
+        if hold is not None:
+            break  # 找到数据，退出month循环
+
+    if hold is not None:
         results.append({
             "來源": "FedWatch/Oddpool",
             "類別": "FOMC利率概率",
-            "當前利率": current_rate,
+            "當前利率": "?",
             "維持概率%": hold,
-            "加息25bp概率%": hike,
-            "降息25bp概率%": cut,
-            "會議": "2026年6月",
+            "加息25bp概率%": hike_25 or "?",
+            "降息25bp概率%": cut_25 or "?",
+            "會議": event_id_found or "?",
             "抓取日": TODAY,
         })
-        if hold != "?":
-            log.info(f"  ✅ FedWatch: 维持{hold}%, 加息{hike}%, 降息{cut}%")
+        log.info(f"  ✅ FedWatch ({event_id_found}): 维持{hold}%, 降息25bp={cut_25}%, 加息25bp={hike_25}%")
     else:
-        log.warning("FedWatch 抓取失败，使用FRED估算")
-        # 备选: 用FRED联邦基金利率
-        rate = os.getenv("FRED_API_KEY", "")
+        log.warning("FedWatch 抓取失败，使用FRED联邦基金利率估算")
         results.append({
             "來源": "FRED (FedWatch暂缺)",
             "類別": "FOMC利率概率",
-            "當前利率": "3.63",
-            "維持概率%": "待查",
-            "加息25bp概率%": "待查",
-            "降息25bp概率%": "待查",
-            "會議": "2026年6月",
+            "當前利率": "?",
+            "維持概率%": "?",
+            "加息25bp概率%": "?",
+            "降息25bp概率%": "?",
+            "會議": "?",
             "抓取日": TODAY,
         })
 
@@ -789,90 +873,6 @@ def fetch_yahoo_futures():
     save_csv(df, "yahoo_futures")
     return df
 
-ALL_SOURCES = {
-    "fedwatch": ("FedWatch FOMC概率", fetch_fedwatch),
-    "fred": ("美聯儲 FRED", fetch_fred),
-    "news": ("NewsAPI 新聞", fetch_news),
-    "vix": ("VIX波动率", fetch_vix),
-    "weather": ("OpenWeather 天氣", fetch_weather),
-    "eia": ("EIA 能源", fetch_eia),
-    "usda": ("USDA 農業", fetch_usda),
-    "cftc": ("CFTC 持倉", fetch_cftc),
-    "finnhub": ("Finnhub 經濟日曆", fetch_finnhub),
-    "agsi": ("AGSI+ 天然氣", fetch_agsi),
-    "estat": ("日本 e-Stat", fetch_estat),
-}
-
-
-def run_all():
-    """運行所有數據源"""
-    print(f"\n{'='*60}")
-    print(f"  📊 宏觀期貨數據採集流水線")
-    print(f"  日期: {TODAY}")
-    print(f"{'='*60}\n")
-
-    summary = {"成功": 0, "失敗": 0, "跳過": 0}
-    
-    for key, (name, func) in ALL_SOURCES.items():
-        print(f"\n[{key.upper()}] {name}")
-        try:
-            df = func()
-            if df is not None:
-                summary["成功"] += 1
-            else:
-                summary["跳過"] += 1
-        except Exception as e:
-            log.error(f"❌ {name} 失敗: {e}", exc_info=True)
-            summary["失敗"] += 1
-
-    print(f"\n{'='*60}")
-    print(f"  採集完成！成功: {summary['成功']}, 跳過: {summary['跳過']}, 失敗: {summary['失敗']}")
-    print(f"  數據目錄: {DATA_DIR}")
-    print(f"{'='*60}")
-
-    # 生成摘要 JSON
-    summary_data = {
-        "日期": TODAY,
-        "運行時間": datetime.now().isoformat(),
-        "狀態": summary,
-        "活躍數據源": [k for k in ALL_SOURCES],
-    }
-    save_json(summary_data, "pipeline_summary", "meta")
-    
-    return summary
-
-
-# ─── 入口 ───────────────────────────────────────────────────
-
-def main():
-    parser = argparse.ArgumentParser(description="宏觀期貨數據採集流水線")
-    parser.add_argument("--source", choices=list(ALL_SOURCES.keys()) + ["all"],
-                        default="all", help="指定數據源")
-    parser.add_argument("--report", action="store_true", help="生成報告")
-    args = parser.parse_args()
-
-    if args.report:
-        print("📋 生成每日宏觀報告...")
-        from generate_report import gen_report
-        report = gen_report()
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        report_path = DATA_DIR / "reports" / f"{date_str}.md"
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(report)
-        print(f"✅ 報告已保存: {report_path}")
-        print(report[:500])
-        return
-
-    if args.source == "all":
-        run_all()
-    else:
-        name, func = ALL_SOURCES[args.source]
-        log.info(f"單獨運行: {name}")
-        func()
-
-
-if __name__ == "__main__":
-    main()
 
 # ─── 14. VIX (波动率指数) ──────────────────────────────────
 
@@ -1052,5 +1052,76 @@ def fetch_eia_steo():
     df = pd.DataFrame(results)
     save_csv(df, "eia_steo")
     return df
+
+
+# ═══ ALL_SOURCES + 入口 (必须在所有 fetch_* 函数之后) ═══════
+
+ALL_SOURCES = {
+    "fedwatch": ("FedWatch FOMC概率", fetch_fedwatch),
+    "fred": ("美聯儲 FRED", fetch_fred),
+    "news": ("NewsAPI 新聞", fetch_news),
+    "vix": ("VIX波动率", fetch_vix),
+    "weather": ("OpenWeather 天氣", fetch_weather),
+    "eia": ("EIA 能源", fetch_eia),
+    "usda": ("USDA 農業", fetch_usda),
+    "cftc": ("CFTC 持倉", fetch_cftc),
+    "cot": ("CFTC COT持仓 (cotdata.net)", fetch_cot),
+    "yahoo": ("Yahoo Finance 期貨/外匯", fetch_yahoo_futures),
+    "finnhub": ("Finnhub 經濟日曆", fetch_finnhub),
+    "agsi": ("AGSI+ 天然氣", fetch_agsi),
+    "estat": ("日本 e-Stat", fetch_estat),
+}
+
+
+def run_all():
+    """運行所有數據源"""
+    print(f"\n{'='*60}")
+    print(f"  📊 宏觀期貨數據採集流水線")
+    print(f"  日期: {TODAY}")
+    print(f"{'='*60}\n")
+    summary = {"成功": 0, "失敗": 0, "跳過": 0}
+    for key, (name, func) in ALL_SOURCES.items():
+        print(f"\n[{key.upper()}] {name}")
+        try:
+            df = func()
+            if df is not None:
+                summary["成功"] += 1
+            else:
+                summary["跳過"] += 1
+        except Exception as e:
+            log.error(f"❌ {name} 失敗: {e}", exc_info=True)
+            summary["失敗"] += 1
+    print(f"\n{'='*60}")
+    print(f"  採集完成！成功: {summary['成功']}, 跳過: {summary['跳過']}, 失敗: {summary['失敗']}")
+    print(f"  數據目錄: {DATA_DIR}")
+    print(f"{'='*60}")
+    summary_data = {
+        "日期": TODAY, "運行時間": datetime.now().isoformat(),
+        "狀態": summary, "活躍數據源": [k for k in ALL_SOURCES],
+    }
+    meta_dir = DATA_DIR / "meta" / TODAY
+    meta_dir.mkdir(parents=True, exist_ok=True)
+    with open(meta_dir / "pipeline_summary.json", "w") as f:
+        json.dump(summary_data, f, ensure_ascii=False, indent=2)
+    log.info(f"✅ 已保存 {meta_dir / 'pipeline_summary.json'}")
+    return summary
+
+
+def main():
+    parser = argparse.ArgumentParser(description="宏觀期貨數據採集流水線")
+    parser.add_argument("--source", choices=list(ALL_SOURCES.keys()) + ["all"],
+                        default="all", help="指定數據源")
+    parser.add_argument("--report", action="store_true", help="生成報告")
+    args = parser.parse_args()
+    if args.source == "all":
+        run_all()
+    else:
+        name, func = ALL_SOURCES[args.source]
+        log.info(f"單獨運行: {name}")
+        func()
+
+
+if __name__ == "__main__":
+    main()
 
 

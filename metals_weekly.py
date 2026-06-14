@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """金银周报生成器 - 公众号模板风格"""
-import os, sys
+import os, sys, requests
 from datetime import datetime
 from pathlib import Path
 # Ensure system Python site-packages is accessible for pandas/numpy
@@ -124,10 +124,58 @@ def fetch_fedwatch():
                 continue
     return None
 
+def yahoo_quote_direct(symbol, retries=3):
+    """Yahoo Finance 直连API — CSV数据过期时的fallback"""
+    import time, random
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    params = {"range": "5d", "interval": "1d"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    for attempt in range(retries):
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                result = data["chart"]["result"][0]
+                meta = result.get("meta", {})
+                price = meta.get("regularMarketPrice")
+                return price, TODAY
+            elif r.status_code == 429:
+                time.sleep((2 ** attempt) + random.random() * 2)
+        except Exception:
+            time.sleep(2 ** attempt)
+    return None, None
+
 def report():
     yahoo = load("yahoo_futures")
     yahoo_week = load_week("yahoo_futures")
     cot = load("cotdata")
+
+    # Yahoo CSV数据时效检查 — 超过2天视为过期
+    yahoo_stale = True
+    if yahoo is not None and not yahoo.empty and "日期" in yahoo.columns:
+        try:
+            latest_date = yahoo["日期"].max()
+            from datetime import datetime as dt
+            days_diff = (dt.strptime(TODAY, "%Y-%m-%d") - dt.strptime(str(latest_date), "%Y-%m-%d")).days
+            yahoo_stale = days_diff > 2
+        except Exception:
+            yahoo_stale = True
+
+    if yahoo_stale:
+        print(f"[金属报告] Yahoo CSV数据过期，使用直连API获取最新价格...")
+        for sym, name, keyword in [("GC=F", "COMEX黃金期貨", "黃金"), ("SI=F", "COMEX白銀期貨", "白銀")]:
+            price, date = yahoo_quote_direct(sym)
+            if price is not None:
+                new_row = pd.DataFrame([{
+                    "來源": "Yahoo Finance (直连)", "品種": name,
+                    "代碼": sym, "日期": date, "最新價": price,
+                    "抓取日": TODAY
+                }])
+                if yahoo is not None and not yahoo.empty:
+                    yahoo = pd.concat([yahoo, new_row], ignore_index=True)
+                else:
+                    yahoo = new_row
+                print(f"  ✅ {keyword}: ${price} ({date})")
     av = load("commodity_prices")
     fred = load("fred_indicators")
     
