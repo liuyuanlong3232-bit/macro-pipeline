@@ -1,0 +1,8 @@
+{
+  "taps": [
+    {
+      "repo": "witt3rd/oh-my-hermes",
+      "path": "skills/"
+    }
+  ]
+}
