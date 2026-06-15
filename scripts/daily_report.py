@@ -95,17 +95,21 @@ for region, name in [("US_IL","美中西部IL"), ("US_IA","美中西部IA"), ("B
 
 # ── D区：中国农业+天气 ──
 def cn_weather():
-    """读取 cn_weather 表当天数据"""
-    rows = None
     try:
         conn = sqlite3.connect(DB); cur = conn.cursor()
-        cur.execute("SELECT city, temp, text, humidity, wind_dir, wind_scale, forecast_temp_max FROM cn_weather WHERE date=? AND hour!='forecast' ORDER BY city", (TODAY,))
-        rows = cur.fetchall()
-        conn.close()
-    except: pass
-    return rows or []
+        cur.execute("SELECT city, temp, text, humidity, wind_dir, wind_scale FROM cn_weather WHERE date=? AND hour!='forecast' ORDER BY city", (TODAY,))
+        rows = cur.fetchall(); conn.close(); return rows or []
+    except: return []
+
+def cn_futures():
+    try:
+        conn = sqlite3.connect(DB); cur = conn.cursor()
+        cur.execute("SELECT name, close, change_pct, vol, unit FROM cn_futures ORDER BY name")
+        rows = cur.fetchall(); conn.close(); return rows or []
+    except: return []
 
 cn_wx = cn_weather()
+cn_ft = cn_futures()
 cn_agri_available = False
 cn_data = []
 try:
@@ -232,24 +236,25 @@ else:
 # ═════════════ D区 ═════════════
 L.append("")
 L.append("━" * 55)
-L.append("🐷 D区 · 中国农业+天气")
+L.append("🐷 D区 · 中国农业")
 L.append("")
+if cn_ft:
+    L.append("  国内期货:")
+    for row in cn_ft:
+        name, close, chg, vol, unit = row
+        arrow = "🔺" if (chg or 0) > 0 else "🔻" if (chg or 0) < 0 else "➡️"
+        chg_str = "{:+.1f}%".format(chg) if chg else "—"
+        L.append("  {} ¥{:.0f}{} {} {}手".format(name, close, unit, arrow+chg_str, int(vol or 0)))
+    L.append("")
 if cn_wx:
-    L.append("  城市实时天气:")
+    L.append("  城市天气:")
     for row in cn_wx:
-        city, temp, text, hum, wdir, wscale, fmax = row
-        tag = ""
-        try:
-            if float(temp) > 35: tag = " 🔥"
-            elif float(temp) < 0: tag = " ❄️"
-        except: pass
-        L.append("  {} {}°C {} 湿度{}% 风{}{}级{}".format(city, temp, text, hum, wdir, wscale, tag))
-else:
-    L.append("  ⏳ 天气数据采集中（首次运行后显示）")
-if cn_agri_available:
-    L.append("  （Tushare期货待接入）")
-else:
-    L.append("  数据源: 和风天气 API v7 (50K次/月免费) + Tushare(待接)")
+        city, temp, text, hum, wdir, wscale = row
+        tag = " 🔥" if (temp or 0) > 35 else " ❄️" if (temp or 0) < 0 else ""
+        L.append("  {} {}°C {} 湿度{}%{}{}".format(city, temp, text, hum, tag, ""))
+    L.append("")
+L.append("  数据源: Tushare(2000积分) + 和风天气(50K次/月免费)")
+L.append("  不构成投资建议 · 仅供学习参考")
 
 
 # ═════════════ 预警 ═════════════
