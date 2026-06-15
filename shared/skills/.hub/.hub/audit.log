@@ -1,3 +1,0 @@
-2026-06-12T09:51:18Z BLOCKED gstack clawhub:community dangerous 79_findings
-2026-06-13T09:54:18Z BLOCKED scrapling official:builtin invalid_path 'D:\\ProgramData\\Hermes\\skills\\scrapling' is not in the subpath of 'C:\\Users\\Administrator\\AppData\\Local\\hermes\\skills' OR one path is relative and the other is absolute.
-2026-06-13T09:54:19Z BLOCKED scrapling official:builtin invalid_path 'D:\\ProgramData\\Hermes\\skills\\scrapling' is not in the subpath of 'C:\\Users\\Administrator\\AppData\\Local\\hermes\\skills' OR one path is relative and the other is absolute.
