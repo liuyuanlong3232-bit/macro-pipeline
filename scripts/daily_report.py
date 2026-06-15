@@ -93,13 +93,24 @@ for region, name in [("US_IL","美中西部IL"), ("US_IA","美中西部IA"), ("B
         elif avg30 > 8.0:
             weather_alerts.append(f"⚠️ {name}: 30天均降水 {avg30:.1f}mm（异常偏湿）")
 
-# ── D区：中国农业 ──
+# ── D区：中国农业+天气 ──
+def cn_weather():
+    """读取 cn_weather 表当天数据"""
+    rows = None
+    try:
+        conn = sqlite3.connect(DB); cur = conn.cursor()
+        cur.execute("SELECT city, temp, text, humidity, wind_dir, wind_scale, forecast_temp_max FROM cn_weather WHERE date=? AND hour!='forecast' ORDER BY city", (TODAY,))
+        rows = cur.fetchall()
+        conn.close()
+    except: pass
+    return rows or []
+
+cn_wx = cn_weather()
 cn_agri_available = False
 cn_data = []
 try:
     r = db_one('SELECT COUNT(*) FROM yahoo_futures WHERE "品種" LIKE "%豬%"')
-    if r and r[0] > 0:
-        cn_agri_available = True
+    if r and r[0] > 0: cn_agri_available = True
 except: pass
 
 # ═══════ 异常收集 ═══════
@@ -221,13 +232,25 @@ else:
 # ═════════════ D区 ═════════════
 L.append("")
 L.append("━" * 55)
-L.append("🐷 D区 · 中国农业")
+L.append("🐷 D区 · 中国农业+天气")
 L.append("")
-if cn_agri_available:
-    L.append("  （待Tushare数据接入后自动填充）")
+if cn_wx:
+    L.append("  城市实时天气:")
+    for row in cn_wx:
+        city, temp, text, hum, wdir, wscale, fmax = row
+        tag = ""
+        try:
+            if float(temp) > 35: tag = " 🔥"
+            elif float(temp) < 0: tag = " ❄️"
+        except: pass
+        L.append("  {} {}°C {} 湿度{}% 风{}{}级{}".format(city, temp, text, hum, wdir, wscale, tag))
 else:
-    L.append("  ⏳ 中国农业数据模块建设中（生猪/玉米/豆粕期货待接入）")
-    L.append("  数据源: Tushare期货行情 + 国家粮油信息中心")
+    L.append("  ⏳ 天气数据采集中（首次运行后显示）")
+if cn_agri_available:
+    L.append("  （Tushare期货待接入）")
+else:
+    L.append("  数据源: 和风天气 API v7 (50K次/月免费) + Tushare(待接)")
+
 
 # ═════════════ 预警 ═════════════
 if alerts_list:
@@ -261,7 +284,7 @@ for block, name, val, dt in rows:
     L.append(f"| {block} | {name} | {val} | {dt} |")
 
 L.append("")
-L.append("  数据: FRED, Yahoo Finance, CFTC, Open-Meteo, EIA")
+L.append("  数据: FRED, Yahoo Finance, CFTC, Open-Meteo, EIA, 和风天气")
 L.append("  生成: " + NOW.strftime("%Y-%m-%d %H:%M") + " CST · 不构成投资建议")
 
 report = "\n".join(L)
