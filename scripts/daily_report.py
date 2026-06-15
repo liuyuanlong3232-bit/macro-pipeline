@@ -97,7 +97,7 @@ for region, name in [("US_IL","美中西部IL"), ("US_IA","美中西部IA"), ("B
 def cn_weather():
     try:
         conn = sqlite3.connect(DB); cur = conn.cursor()
-        cur.execute("SELECT city, temp, text, humidity, wind_dir, wind_scale FROM cn_weather WHERE date=? AND hour!='forecast' ORDER BY city", (TODAY,))
+        cur.execute("SELECT city, temp, text, humidity, wind_dir, wind_scale FROM cn_weather WHERE date=? AND hour='now' ORDER BY city", (TODAY,))
         rows = cur.fetchall(); conn.close(); return rows or []
     except: return []
 

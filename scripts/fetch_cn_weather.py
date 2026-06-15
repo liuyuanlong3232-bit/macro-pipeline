@@ -56,8 +56,7 @@ for city, loc in CITIES.items():
         if r.status_code == 200:
             n = r.json()["now"]
             today_str = now.strftime("%Y-%m-%d")
-            obs_time = n.get("obsTime", today_str)
-            hour = obs_time.split("T")[1][:5] if "T" in obs_time else "08:00"
+            hour = "now"  # 固定hour避免obsTime变化导致重复
 
             conn.execute("""INSERT OR REPLACE INTO cn_weather 
                 (city, date, hour, temp, text, humidity, wind_dir, wind_scale, precip, pressure, vis, source, fetched_at)
