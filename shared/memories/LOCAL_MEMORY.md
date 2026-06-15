@@ -1,6 +1,3 @@
-## 系统状态与工作流
-VPS Hermes v0.16.0+MiMo 2.5 Pro ¥39/月。SSH: ssh -p 58234 -i C:\Users\Administrator\.ssh\id_rsa root@45.77.126.71。时区Asia/Shanghai。工作流：VPS执行(代码/采集/cron)→本地同步→GitHub。QQ Bot(1904159904)日常对话，QQ邮箱(452731778@qq.com)收报告。技能：knowledge-expansion/mao-quotes。系统cron：daily_collect+daily_report+6份周报+USDA检查。FRED/EIA/COT/USDA全通。VPS环境>本地(root权限无中断)。你问我答，不问不做，数据优先极简回答。报告学习用不盈利。
-§
 QQ Bot部署成功！VPS: 45.77.126.71:58234，模型MiMo 2.5 Pro。QQ Bot已连接(WebSocket正常)。AppID: 1904159904。使用方式：私聊直接发消息，群聊@机器人。每月主动消息限制4条，被动消息无限制。
 §
 通信渠道：邮箱(QQ邮箱452731778@qq.com)发送周报日报(6份/周)，QQ Bot用于日常对话(每月主动消息4条限制)。Telegram暂不使用(被墙)。VPS Hermes MiMo 2.5 Pro已部署，网关运行中。
@@ -11,7 +8,7 @@ VPS时区已改为中国时间(Asia/Shanghai UTC+8)。数据采集cron：每日0
 §
 变现方案已调整：知识星球新规无资质不可发布，报告仅供自己学习使用。系统优化方向：提升数据质量、分析深度、学习效率。
 §
-VPS Hermes已修复11项问题(2026-06-14)：Yahoo采集/CFTC URL/DGS5恢复/FedWatch API/FRED Key修复。代码已同步到本地并推送GitHub。FRED_API_KEY已正确写入32位。数据流水线全部恢复。
+VPS已修复15项+历史数据133K+天气33K+VIX/EIA/CFTC三缺口。三层知识体系：plans+memory+shared。天气按Open-Meteo官方规则，6次/天(低于1万限额)。数据审计每月一次。
 §
 用户结论：本地Hermes(我)+VPS Hermes(云端)配合就够了，不需要其他软件。核心定位：本地做主力交互和分析，VPS做7x24数据工厂和定时任务。MiMo 2.5 Pro ¥39/月。VPS SSH: ssh -p 58234 -i C:\Users\Administrator\.ssh\id_rsa root@45.77.126.71。FRED_API_KEY已修复32位。
 §
@@ -26,3 +23,9 @@ VPS cron已规范化(2026-06-15)：用`scripts/daily_collect.py`替代内联Pyth
 macro-futures-pipeline技能已更新：新增DB Schema速查表、.env截断陷阱、Cron 5字段语法规则、日报生成器文档、VPS优先工作流。
 §
 2026-06-15关键教训：①cron 6字段语法错误→全部11项任务停止(as df.daily/draw.py)②.env被截断→邮箱/XRED Key丢失③Yahoo CSV不入库→日报显示3天旧数据。技能已更新：vps-hermes-deployment(+memory-sync/+collab-example)，macro-futures-pipeline(+yahoo-csv-db-gap)
+§
+用户想提升Python后端能力。学习方式：以改代学（改现有流水线代码），不看理论书。当前阶段：能读懂简单代码，下一步是能独立改daily_report.py。学习计划：一阶段读懂→二阶段能改→三阶段能写。我承诺改代码时解释每行，留小bug让他修，新任务让他先试。
+§
+系统模型分工：本地DeepSeek V4 Pro（自行切换），VPS MiMo 2.5 Pro ¥39/月固定。SSH: ssh -p 58234 -i C:\Users\Administrator\.ssh\id_rsa root@45.77.126.71。cron：daily_collect+daily_report+6份周报。三层知识体系：plans(内置)+memory(内置)+shared(自建GitHub双向同步)。
+§
+模型方案定稿：本地DeepSeek V4 Pro（用户自行切换），VPS云端MiMo 2.5 Pro ¥39/月固定。MiMo月耗~120万实际token+7600万缓存，¥39刚好月均。不够再升级套餐。
