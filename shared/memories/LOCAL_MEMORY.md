@@ -1,23 +1,5 @@
-# VPS Hermes 记忆
-
-## 系统状态
-- VPS: 45.77.126.71:58234
-- 模型: MiMo 2.5 Pro
-- 数据: /root/hermes-macro-data/
-- 报告: /root/hermes-macro-data/reports/
-
-## 工作原则
-1. 数据优先，不编造
-2. 主动解决，不问用户
-3. 混合模式：数据+LLM分析
-4. 最小修改：只patch不重写
-
-## 已完成
-- 重构6个报告脚本
-- 修复空缺数据
-- 统一格式
-§
-系统状态备忘：VPS Hermes v0.16.0+MiMo 2.5 Pro(¥39/月)已完整部署。SSH: ssh -p 58234 -i C:\Users\Administrator\.ssh\id_rsa root@45.77.126.71。FRED API已修复32位。通信：QQ邮箱(452731778@qq.com)发周报日报，QQ Bot(1904159904)日常对话。工作流：VPS写代码→本地同步→GitHub推送。已部署技能：knowledge-expansion/mao-quotes。用户要求：不问他自己做，数据优先极简回答。
+## 系统状态与工作流
+VPS Hermes v0.16.0+MiMo 2.5 Pro ¥39/月。SSH: ssh -p 58234 -i C:\Users\Administrator\.ssh\id_rsa root@45.77.126.71。时区Asia/Shanghai。工作流：VPS执行(代码/采集/cron)→本地同步→GitHub。QQ Bot(1904159904)日常对话，QQ邮箱(452731778@qq.com)收报告。技能：knowledge-expansion/mao-quotes。系统cron：daily_collect+daily_report+6份周报+USDA检查。FRED/EIA/COT/USDA全通。VPS环境>本地(root权限无中断)。你问我答，不问不做，数据优先极简回答。报告学习用不盈利。
 §
 QQ Bot部署成功！VPS: 45.77.126.71:58234，模型MiMo 2.5 Pro。QQ Bot已连接(WebSocket正常)。AppID: 1904159904。使用方式：私聊直接发消息，群聊@机器人。每月主动消息限制4条，被动消息无限制。
 §
