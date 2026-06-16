@@ -4,17 +4,15 @@
 品种: 大商所(生猪/豆粕/玉米/大豆) + 郑商所(小麦)
 认证: TUSHARE_TOKEN (2000积分免费)
 """
-import requests, sqlite3
+import os, sys, requests, sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta
 
 # ── 配置 ──
-token = ""
-env_path = Path.home() / "hermes-pipeline" / ".env"
-for line in open(str(env_path)):
-    if "TUSHARE_TOKEN" in line and "=" in line and "***" not in line:
-        token = line.split("=", 1)[1].strip()
-        break
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.utils import load_env, DATA_DIR
+load_env()
+token = os.getenv("TUSHARE_TOKEN", "")
 
 now = datetime.now()
 today_str = now.strftime("%Y%m%d")

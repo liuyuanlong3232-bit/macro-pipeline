@@ -3,8 +3,10 @@
 import os
 from pathlib import Path
 
-GIT_MEMORY = Path("/root/hermes-pipeline/memories/LOCAL_MEMORY.md")
-HERMES_MEMORY = Path("/root/hermes-pipeline/memories/MEMORY.md")
+# 动态定位项目根目录
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+GIT_MEMORY = PROJECT_ROOT / "memories" / "LOCAL_MEMORY.md"
+HERMES_MEMORY = PROJECT_ROOT / "memories" / "MEMORY.md"
 
 def main():
     if not GIT_MEMORY.exists():

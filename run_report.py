@@ -4,9 +4,11 @@ import sys, subprocess
 from pathlib import Path
 from datetime import datetime
 
-TODAY = datetime.now().strftime("%Y-%m-%d")
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import DATA_DIR, TODAY
+
 PIPELINE = Path(__file__).resolve().parent
-DATA_DIR = Path.home() / "hermes-macro-data"
 
 SCRIPTS = {
     "macro": {

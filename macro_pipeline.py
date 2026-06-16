@@ -35,11 +35,15 @@ from typing import Optional
 
 import requests
 import pandas as pd
-from dotenv import load_dotenv
 
 # ─── 配置 ───────────────────────────────────────────────────
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import load_env, DATA_DIR as _DATA_DIR
+
+load_env()
+# macro_pipeline 需要直接从.env文件读取key（确保不受环境变量污染）
 ENV_PATH = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env"
-load_dotenv(ENV_PATH, override=True)
 
 # 强制从.env文件读取API key（覆盖可能残留的旧环境变量）
 def _load_env_key(key_name):
@@ -90,7 +94,7 @@ if not os.environ.get("HTTP_PROXY") and not os.environ.get("http_proxy"):
         finally:
             sock.close()
 
-DATA_DIR = Path.home() / "hermes-macro-data"
+DATA_DIR = _DATA_DIR
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_DIR = DATA_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)

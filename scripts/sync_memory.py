@@ -5,7 +5,9 @@ from pathlib import Path
 from datetime import datetime
 
 LOCAL_MEMORY = Path.home() / "AppData" / "Local" / "hermes" / "memories" / "MEMORY.md"
-REMOTE_MEMORY = "/root/hermes-pipeline/memories/MEMORY.md"
+# 动态定位项目根目录
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+REMOTE_MEMORY = str(PROJECT_ROOT / "memories" / "MEMORY.md")
 
 def main():
     if not LOCAL_MEMORY.exists():
@@ -17,8 +19,7 @@ def main():
         content = f.read()
     
     # 保存到本地Git仓库，然后再上传
-    git_dir = Path("/d/hermes/pipeline")
-    sync_file = git_dir / "memories" / "LOCAL_MEMORY.md"
+    sync_file = PROJECT_ROOT / "memories" / "LOCAL_MEMORY.md"
     sync_file.parent.mkdir(parents=True, exist_ok=True)
     
     with open(sync_file, "w") as f:
@@ -29,13 +30,13 @@ def main():
     print(f"更新时间: {ts}")
     print()
     print("手动执行")
-    print(f"  cd {git_dir}")
+    print(f"  cd {PROJECT_ROOT}")
     print("  git add memories/LOCAL_MEMORY.md")
     print("  git commit -m 'sync: local memory'")
     print("  git push")
     print()
     print("然后VPS上执行:")
-    print(f"  cd /root/hermes-pipeline")
+    print(f"  cd {PROJECT_ROOT}")
     print("  git pull")
     print("  python3 scripts/import_memory.py")
     

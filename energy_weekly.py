@@ -5,17 +5,14 @@
 import os, sys, re, json, requests
 from datetime import datetime, timedelta
 from pathlib import Path
-from dotenv import load_dotenv
 import pandas as pd
 
 # 公共工具函数
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from shared.utils import load_csv, yahoo_quote_direct
+from shared.utils import load_csv, yahoo_quote_direct, load_env, DATA_DIR, TODAY
 
-load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
+load_env()
 EIA_API_KEY = os.getenv("EIA_API_KEY")
-DATA_DIR = Path.home() / "hermes-macro-data"
-TODAY = datetime.now().strftime("%Y-%m-%d")
 
 # 兼容：load_csv 在本文件中仍叫 load
 load = load_csv

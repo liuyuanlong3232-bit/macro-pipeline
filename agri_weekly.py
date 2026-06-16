@@ -3,17 +3,14 @@
 import os, sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from dotenv import load_dotenv
 import pandas as pd
 import requests
 
 # 公共工具函数
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from shared.utils import load_csv
+from shared.utils import load_csv, load_env, DATA_DIR, TODAY
 
-load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / "hermes-pipeline"))) / ".env")
-DATA_DIR = Path.home() / "hermes-macro-data"
-TODAY = datetime.now().strftime("%Y-%m-%d")
+load_env()
 
 # 兼容：load_csv 在本文件中仍叫 load
 load = load_csv
@@ -402,7 +399,7 @@ def global_agri():
                         lines.append(f"{display_name} | 资管净{net:+,} | OI {oi:,} | — | {sig}")
                     else:
                         lines.append(f"{display_name} | — | — | — | 暂无COT数据")
-                except:
+                except Exception:
                     lines.append(f"{display_name} | — | — | — | 暂无COT数据")
                 continue
             if target_key == "小麦":
@@ -739,9 +736,8 @@ def china_agri():
     try:
         from data_scrapers import fetch_cn_warehouse_receipts
         warehouse = fetch_cn_warehouse_receipts()
-    except:
-        warehouse = None
-    
+    except Exception:
+        warehouse = None    
     for name in TUSHARE_MAP.keys():
         wr_val = warehouse.get(name, "—") if warehouse else "—"
         wr_str = f"{wr_val:,}手" if isinstance(wr_val, int) else "—"

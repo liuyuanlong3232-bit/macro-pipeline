@@ -2,13 +2,16 @@
 方案1(主): EIA API (STEO) → 快、可靠、已有API KEY
 方案2(备): Scrapling StealthyFetcher爬OPEC MOMR → 过Cloudflare, 慢但数据新
 """
-import os, json
+import os, sys, json
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 import requests
 
-load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / "hermes-pipeline"))) / ".env")
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import load_env
+
+load_env()
 EIA_KEY = os.getenv("EIA_API_KEY")
 
 def fetch_eia_opec():

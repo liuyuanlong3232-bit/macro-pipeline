@@ -1,17 +1,35 @@
 #!/usr/bin/env python3
 """
 周报公共工具函数
-统一管理 load/fetch_fedwatch/yahoo_quote_direct，避免各周报文件重复实现
+统一管理 load/fetch_fedwatch/yahoo_quote_direct/load_env，避免各周报文件重复实现
 """
-import time, random, sqlite3
+import os, time, random, sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
 import requests
+from dotenv import load_dotenv
 
+# ═══════ 全局常量 ═══════
 DATA_DIR = Path.home() / "hermes-macro-data"
 TODAY = datetime.now().strftime("%Y-%m-%d")
+
+
+# ═══════ 环境加载 ═══════
+
+def load_env():
+    """统一加载 .env 文件，按优先级搜索：HERMES_HOME → 项目根 → ~/.hermes"""
+    candidates = [
+        Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env",
+        Path(__file__).resolve().parent.parent / ".env",
+        Path.home() / ".hermes" / ".env",
+    ]
+    for p in candidates:
+        if p.exists():
+            load_dotenv(p, override=True)
+            return
+    # 回退：不报错，让 os.getenv 自行返回 None
 
 
 # ═══════ 数据加载 ═══════

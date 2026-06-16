@@ -5,18 +5,16 @@
 认证方式: X-QW-Api-Key Header + 专属 API Host
 免费额度: 50,000次/月 (我们用量 ~120次/月)
 """
-import requests, sqlite3
+import os, sys, requests, sqlite3
 from pathlib import Path
 from datetime import datetime
 
 # ── 读取配置 ──
-key = host = ""
-env_path = Path.home() / "hermes-pipeline" / ".env"
-for line in open(str(env_path)):
-    if "QWEATHER_KEY" in line and "=" in line:
-        key = line.split("=", 1)[1].strip()
-    if "QWEATHER_HOST" in line and "=" in line:
-        host = line.split("=", 1)[1].strip()
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.utils import load_env, DATA_DIR
+load_env()
+key = os.getenv("QWEATHER_KEY", "")
+host = os.getenv("QWEATHER_HOST", "")
 
 # ── 核心城市 ──
 CITIES = {

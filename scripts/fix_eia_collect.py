@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """最终修复：EIA采集函数扩展+入库"""
-import os, requests
+import os, sys, requests
 from datetime import datetime, timedelta
 from pathlib import Path
 import pandas as pd
 
 # 读EIA_KEY
-key = ""
-for line in open(str(Path.home() / "hermes-pipeline" / ".env")):
-    if "EIA_API_KEY" in line:
-        key = line.split("=",1)[1].strip().strip('"').strip("'")
-        break
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from shared.utils import load_env, DATA_DIR
+load_env()
+key = os.getenv("EIA_API_KEY", "")
 
 today = datetime.now().strftime("%Y-%m-%d")
 EIA_BASE = "https://api.eia.gov/v2"

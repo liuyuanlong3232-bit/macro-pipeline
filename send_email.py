@@ -7,20 +7,14 @@ from email.mime.image import MIMEImage
 from email.header import Header
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 
-# 动态定位 .env 文件：优先项目根目录，回退到 home 目录
-_ENV_CANDIDATES = [
-    Path(__file__).resolve().parent / ".env",
-    Path.home() / "hermes-pipeline" / ".env",
-    Path.home() / ".hermes" / ".env",
-]
-for _p in _ENV_CANDIDATES:
-    if _p.exists():
-        load_dotenv(_p)
-        break
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import load_env, DATA_DIR
 
-CHART_DIR = Path.home() / "hermes-macro-data" / "charts"
+load_env()
+
+CHART_DIR = DATA_DIR / "charts"
 
 def img_to_base64(path):
     with open(path, "rb") as f:

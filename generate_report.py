@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """贵金属日报生成器"""
-import os
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-from dotenv import load_dotenv
 
-load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import load_env, DATA_DIR, TODAY
 
-DATA_DIR = Path.home() / "hermes-macro-data"
-TODAY = datetime.now().strftime("%Y-%m-%d")
+load_env()
 YESTERDAY = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
 
 

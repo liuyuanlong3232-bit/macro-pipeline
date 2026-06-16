@@ -6,8 +6,10 @@ from pathlib import Path
 import pandas as pd
 import sqlite3
 
-DATA_DIR = Path.home() / "hermes-macro-data"
-TODAY = datetime.now().strftime("%Y-%m-%d")
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import DATA_DIR, TODAY
+
 DB_PATH = DATA_DIR / "hermes.db"
 
 def build_db():

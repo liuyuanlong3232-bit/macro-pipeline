@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """金银周报生成器 - 公众号模板风格"""
-import os, sys, requests
+import sys, requests
 from datetime import datetime
 from pathlib import Path
-from dotenv import load_dotenv
 import pandas as pd
 
 # 公共工具函数
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from shared.utils import load_csv, load_week, fetch_fedwatch, yahoo_quote_direct
+from shared.utils import load_csv, load_week, fetch_fedwatch, yahoo_quote_direct, load_env, DATA_DIR, TODAY
 
-load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
-DATA_DIR = Path.home() / "hermes-macro-data"
-TODAY = datetime.now().strftime("%Y-%m-%d")
+load_env()
 
 # 兼容：load_csv 在本文件中仍叫 load
 load = load_csv

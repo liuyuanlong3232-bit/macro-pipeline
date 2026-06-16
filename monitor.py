@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
 """关键位预警：监控黄金/白银/COT/DXY突破阈值，超限发邮件"""
-import os, json
+import os, sys, json
 from pathlib import Path
 from datetime import datetime
-from dotenv import load_dotenv
-# 动态定位 .env 文件：优先项目根目录，回退到 home 目录
-_ENV_CANDIDATES = [
-    Path(__file__).resolve().parent / ".env",
-    Path.home() / "hermes-pipeline" / ".env",
-    Path.home() / ".hermes" / ".env",
-]
-for _p in _ENV_CANDIDATES:
-    if _p.exists():
-        load_dotenv(_p)
-        break
+
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import load_env
+
+load_env()
 
 # ===== 阈值配置 =====
 # 设定依据：基于2024-2025年历史价格区间，超出范围触发预警

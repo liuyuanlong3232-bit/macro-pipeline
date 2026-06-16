@@ -5,18 +5,15 @@ import re
 import requests
 from datetime import datetime, timedelta
 from pathlib import Path
-from dotenv import load_dotenv
 import pandas as pd
 import akshare as ak
 import tushare as ts
 
 # 公共工具函数
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from shared.utils import load_csv, fetch_fedwatch, yahoo_quote_direct
+from shared.utils import load_csv, fetch_fedwatch, yahoo_quote_direct, load_env, DATA_DIR, TODAY
 
-load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
-DATA_DIR = Path.home() / "hermes-macro-data"
-TODAY = datetime.now().strftime("%Y-%m-%d")
+load_env()
 TS_TOKEN = os.getenv("TUSHARE_TOKEN")
 
 
@@ -68,7 +65,7 @@ def fetch_cn_macro():
             r = df.iloc[-1]
             result["dr007"] = r["FR007"]
             result["repo_date"] = r["date"]
-    except:
+    except Exception:
         pass
     try:
         df = ak.macro_china_shibor_all()
@@ -76,7 +73,7 @@ def fetch_cn_macro():
             r = df.iloc[-1]
             result["shibor_1w"] = r["1W-定价"]
             result["shibor_date"] = r["日期"]
-    except:
+    except Exception:
         pass
     try:
         df = ak.macro_china_lpr()
@@ -85,14 +82,14 @@ def fetch_cn_macro():
             result["lpr1y"] = r["LPR1Y"]
             result["lpr5y"] = r["LPR5Y"]
             result["lpr_date"] = r["TRADE_DATE"]
-    except:
+    except Exception:
         pass
     try:
         df = ak.macro_china_reserve_requirement_ratio()
         if df is not None and not df.empty:
             r = df.iloc[-1]
             result["rrr_large"] = r.get("大型金融机构-调整后", r.get("大型金融机构-调整前"))
-    except:
+    except Exception:
         pass
     return result
 
@@ -125,7 +122,7 @@ def fmt_val(v, kind="number"):
         return "\u2014"
     try:
         v = float(v)
-    except:
+    except Exception:
         return str(v)
     if kind == "pct":
         return f"{v:.2f}%"
@@ -298,7 +295,7 @@ def compute_scores(fred):
             else:
                 cn_notes.append(f"社融+{inc/10000:.1f}万亿")
                 score_cn -= 1
-        except:
+        except Exception:
             pass
     cn_reasons.append("；".join(cn_notes) if cn_notes else "中国宏观数据暂缺")
     score_us = max(-10, min(10, score_us))
@@ -489,7 +486,7 @@ def report():
                 v1 = float(vals[1][0])
                 diff = v0 - v1
                 return f"{diff:+.2f}" if abs(diff) < 100 else f"{diff:+.0f}"
-            except:
+            except Exception:
                 pass
         return "—"
 
@@ -505,7 +502,7 @@ def report():
                 pmi_str += f" {ism['date']}"
         else:
             pmi_str = "—"
-    except:
+    except Exception:
         pmi_str = "—"
 
     # 全球M2 — 从ECB/BOJ获取
@@ -521,7 +518,7 @@ def report():
             m2_str = " / ".join(m2_parts) if m2_parts else "—"
         else:
             m2_str = "—"
-    except:
+    except Exception:
         m2_str = "—"
 
     rows3 = [
@@ -585,14 +582,14 @@ def report():
             try:
                 vn = float(lever_net)
                 vix_cot_pos = f"净空 {abs(vn):,.0f} 手(杠杆基金)"
-            except:
+            except Exception:
                 vix_cot_pos = "—"
         else:
             vix_cot_pos = "—"
         try:
             am_net = float(vix_row.get("资产管理净", 0))
             vix_cot_sig = "偏空(机构避险)" if am_net < 0 else "偏多(风险偏好)"
-        except:
+        except Exception:
             vix_cot_sig = "—"
         vix_cot_pct, vix_cot_zs = "—", "—"
     else:
@@ -602,7 +599,7 @@ def report():
     try:
         from data_scrapers import fetch_cftc_cot_treasury
         treasury_cot = fetch_cftc_cot_treasury()
-    except:
+    except Exception:
         treasury_cot = None
     if treasury_cot and treasury_cot.get("10Y"):
         t10 = treasury_cot["10Y"]
@@ -646,7 +643,7 @@ def report():
             im = float(sf["inc_month"])
             sk = sf.get("stk_endval", "—")
             sf_str = f"{im:,.0f}亿(月增量), 存{sk}万亿"
-        except:
+        except Exception:
             sf_str = "—"
 
     cn_cpi_display = cpi_yoy_str if cpi_yoy_str != "—" else (fmt_val(cn_cpi_fred) if cn_cpi_fred is not None else "—")
@@ -655,7 +652,7 @@ def report():
     try:
         from data_scrapers import fetch_safe_cross_border
         safe_data = fetch_safe_cross_border()
-    except:
+    except Exception:
         safe_data = None
     if safe_data and safe_data.get("total"):
         cross_str = f"收付总额{safe_data['total']/10000:.2f}万亿"
