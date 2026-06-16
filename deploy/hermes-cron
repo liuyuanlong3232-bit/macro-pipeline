@@ -1,13 +1,7 @@
-# ══════════════════════════════════════════════════════════════
-# hermes-cron — 全资产数据采集定时任务
-# 部署方式: scp deploy/hermes-cron root@VPS:/etc/cron.d/hermes-reports
-# 所有时间为 UTC (CST-8)
-# ══════════════════════════════════════════════════════════════
-
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# ═══ 每日数据采集 (08:00-08:30 CST) ═══
+# daily 08:00 CST = 00:00 UTC
 0 0 * * * root cd /root/hermes-pipeline && python3 scripts/daily_collect.py >> /var/log/hermes_data.log 2>&1
 3 0 * * * root cd /root/hermes-pipeline && python3 scripts/fetch_cn_weather.py >> /var/log/hermes_data.log 2>&1
 4 0 * * * root cd /root/hermes-pipeline && python3 scripts/fetch_cn_futures.py >> /var/log/hermes_data.log 2>&1
@@ -15,17 +9,17 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 10 0 * * * root cd /root/hermes-pipeline && python3 scripts/quality_check.py >> /var/log/hermes_data.log 2>&1
 30 0 * * * root cd /root/hermes-pipeline && python3 scripts/daily_report.py >> /var/log/hermes_data.log 2>&1
 
-# ═══ 周度任务 ═══
+# weekly
 0 8 * * 5 root cd /root/hermes-pipeline && python3 scripts/weekly_summary.py >> /var/log/hermes_data.log 2>&1
 0 22 * * 1 root cd /root/hermes-pipeline && python3 scripts/check_usda.py >> /var/log/hermes_data.log 2>&1
 0 15 * * 3 root cd /root/hermes-pipeline && python3 scripts/fix_eia_collect.py >> /var/log/hermes_data.log 2>&1
 0 20 * * 4 root cd /root/hermes-pipeline && python3 macro_pipeline.py --source cot >> /var/log/hermes_data.log 2>&1
 
-# ═══ 记忆同步 ═══
+# memory sync
 0 20 * * * root cd /root/hermes-pipeline && python3 scripts/vps_memory_push.py >> /var/log/hermes_data.log 2>&1
 0 21 * * * root cd /root/hermes-pipeline && git pull && python3 scripts/import_memory.py >> /var/log/hermes_data.log 2>&1
 
-# ═══ 提醒 ═══
+# reminders
 0 12 * * 0 root cd /root/hermes-pipeline && python3 scripts/reminder_weekly.py >> /var/log/hermes_data.log 2>&1
 0 1 15 * * root cd /root/hermes-pipeline && python3 scripts/reminder_monthly.py >> /var/log/hermes_data.log 2>&1
 0 2 * * 3,5 root cd /root/hermes-pipeline && python3 scripts/reminder_weather.py >> /var/log/hermes_data.log 2>&1
