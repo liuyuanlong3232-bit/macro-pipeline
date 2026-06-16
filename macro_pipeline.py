@@ -211,7 +211,7 @@ def fetch_fred():
             "sort_order": "desc",
             "limit": 30,
         }
-        data = safe_get(f"{FRED_BASE}/series/observations", params=params)
+        data = safe_get(f"{FRED_BASE}/series/observations", params=params, source="fred")
         if data and 'observations' in data:
             all_obs = [o for o in data['observations'] if o['value'] != '.']
             for obs in all_obs[:13]:  # 最近13期
@@ -298,7 +298,7 @@ def fetch_weather():
     results = []
     for city, country, note in WEATHER_CITIES:
         params = {"q": f"{city},{country}", "appid": WEATHER_KEY, "units": "metric"}
-        data = safe_get("https://api.openweathermap.org/data/2.5/weather", params=params)
+        data = safe_get("https://api.openweathermap.org/data/2.5/weather", params=params, source="weather")
         if data:
             results.append({
                 "城市": city,
@@ -339,7 +339,7 @@ def fetch_eia():
         "offset": 0,
         "length": 6,
     }
-    data = safe_get(f"{EIA_BASE}/petroleum/crd/crpdn/data/", params=params)
+    data = safe_get(f"{EIA_BASE}/petroleum/crd/crpdn/data/", params=params, source="eia")
     if data and "response" in data:
         for item in data["response"].get("data", []):
             results.append({
@@ -375,7 +375,7 @@ def fetch_usda():
         "year__GE": 2023,
         "page_size": 10,
     }
-    data = safe_get("https://quickstats.nass.usda.gov/api/api_GET/", params=params)
+    data = safe_get("https://quickstats.nass.usda.gov/api/api_GET/", params=params, source="usda")
     results = []
     if data and "data" in data:
         for item in data["data"][:20]:
@@ -467,7 +467,7 @@ def fetch_finnhub():
     # 市場新聞
     news = safe_get(
         "https://finnhub.io/api/v1/news",
-        params={**params, "category": "general", "minId": 0},
+        params={**params, "category": "general", "minId": 0}, source="finnhub",
     )
     if news and isinstance(news, list):
         for item in news[:10]:
