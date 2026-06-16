@@ -41,14 +41,21 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shared.utils import load_env, DATA_DIR as _DATA_DIR
 from shared.orchestrator import Orchestrator, RiskState, safe_request
+from shared.mode import ModeManager, RunMode
 
 load_env()
 # macro_pipeline 需要直接从.env文件读取key（确保不受环境变量污染）
 ENV_PATH = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env"
 
-# 初始化风控调度器
+# 初始化模式管理器
+MODE_CONFIG = Path(__file__).resolve().parent / "config" / "mode.json"
+mode_mgr = ModeManager(str(MODE_CONFIG))
+CURRENT_MODE = mode_mgr.get_mode().value
+
+# 初始化风控调度器（根据模式）
 ORCH_STATE = _DATA_DIR / "meta" / "orchestrator_state.json"
-orch = Orchestrator(str(ORCH_STATE))
+orch = Orchestrator(str(ORCH_STATE), mode=CURRENT_MODE)
+log.info(f"运行模式: {CURRENT_MODE}")
 
 # 强制从.env文件读取API key（覆盖可能残留的旧环境变量）
 def _load_env_key(key_name):
@@ -1086,6 +1093,7 @@ def run_all():
     print(f"\n{'='*60}")
     print(f"  📊 宏觀期貨數據採集流水線")
     print(f"  日期: {TODAY}")
+    print(f"  模式: {CURRENT_MODE}")
     print(f"{'='*60}\n")
     summary = {"成功": 0, "失敗": 0, "跳過": 0}
     for key, (name, func) in ALL_SOURCES.items():
@@ -1104,13 +1112,12 @@ def run_all():
     print(f"  數據目錄: {DATA_DIR}")
 
     # 显示风控状态
-    print(f"\n  🔍 風控状态:")
+    print(f"\n  🔍 風控状态 (模式: {CURRENT_MODE}):")
     for s in orch.get_status_summary():
         icon = "🟢" if s["state"] == "NORMAL" else "🟡" if s["state"] == "THROTTLED" else "🔴"
         cd = f" (冷却{s['cooldown_remaining']}s)" if s["cooldown_remaining"] > 0 else ""
         print(f"    {icon} {s['name']}: {s['state']}{cd} | 请求{s['total_requests']} 错误{s['total_errors']}")
 
-    print(f"{'='*60}")
     print(f"{'='*60}")
     summary_data = {
         "日期": TODAY, "運行時間": datetime.now().isoformat(),
@@ -1129,7 +1136,31 @@ def main():
     parser.add_argument("--source", choices=list(ALL_SOURCES.keys()) + ["all"],
                         default="all", help="指定數據源")
     parser.add_argument("--report", action="store_true", help="生成報告")
+    parser.add_argument("--mode", choices=["DEV", "TEST", "PROD"],
+                        help="切换运行模式")
+    parser.add_argument("--status", action="store_true", help="查看当前状态")
     args = parser.parse_args()
+
+    if args.mode:
+        target = RunMode(args.mode)
+        can, reason = mode_mgr.can_switch_to(target)
+        if can:
+            mode_mgr.set_mode(target, "CLI切换")
+            print(f"✅ 模式已切换: {CURRENT_MODE} → {args.mode}")
+            print(f"   风控状态已重置")
+        else:
+            print(f"❌ 无法切换: {reason}")
+        return
+
+    if args.status:
+        print(f"当前模式: {CURRENT_MODE}")
+        print(f"模式配置: {json.dumps(mode_mgr.get_config(), indent=2, ensure_ascii=False)}")
+        print(f"\n风控状态:")
+        for s in orch.get_status_summary():
+            icon = "🟢" if s["state"] == "NORMAL" else "🟡" if s["state"] == "THROTTLED" else "🔴"
+            print(f"  {icon} {s['name']}: {s['state']} | 请求{s['total_requests']}")
+        return
+
     if args.source == "all":
         run_all()
     else:

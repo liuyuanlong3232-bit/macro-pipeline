@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Hermes Macro Data Orchestrator
-风控感知与自动调度优化
+Hermes Macro Data Orchestrator — 三模式风控调度器
 
+DEV/TEST/PROD 模式管理 + 风控状态检测 + 自动冷却
 核心目标：长期稳定运行，不触发风控
 """
 import time
@@ -12,11 +12,12 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from enum import Enum
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 import requests
 
 log = logging.getLogger("orchestrator")
 
+# ─── 风控状态 ───────────────────────────────────────────────
 
 class RiskState(Enum):
     NORMAL = "NORMAL"
@@ -37,6 +38,7 @@ class SourceState:
         self.cooldown_until = 0
         self.total_requests = 0
         self.total_errors = 0
+        self.session_requests = 0
 
     def is_cooling_down(self) -> bool:
         return time.time() < self.cooldown_until
@@ -44,18 +46,53 @@ class SourceState:
     def cooldown_remaining(self) -> float:
         return max(0, self.cooldown_until - time.time())
 
+    def reset_session(self):
+        self.session_requests = 0
+
+
+# ─── 日志隔离 ───────────────────────────────────────────────
+
+class ModeLogger:
+    """按模式隔离日志"""
+
+    def __init__(self, log_dir: Path, mode: str):
+        self.log_dir = log_dir / mode.lower()
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.mode = mode
+
+    def get_logger(self, name: str) -> logging.Logger:
+        logger = logging.getLogger(f"{self.mode.lower()}.{name}")
+        if not logger.handlers:
+            fh = logging.FileHandler(
+                self.log_dir / f"{name}.log",
+                encoding="utf-8"
+            )
+            fh.setFormatter(logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s"
+            ))
+            logger.addHandler(fh)
+        return logger
+
+
+# ─── 风控调度器 ───────────────────────────────────────────────
+
+# User-Agent 统一
+DEFAULT_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+              "AppleWebKit/537.36 (KHTML, like Gecko) "
+              "Chrome/120.0 Safari/537.36")
+
 
 class Orchestrator:
     """数据采集风控调度器"""
 
-    def __init__(self, state_file: str = None):
+    def __init__(self, state_file: str = None, mode: str = "DEV"):
         self.sources: Dict[str, SourceState] = {}
         self.state_file = state_file
+        self.mode = mode
         self.request_log = []
         self._load_state()
 
     def _load_state(self):
-        """加载持久化状态"""
         if self.state_file and Path(self.state_file).exists():
             try:
                 with open(self.state_file) as f:
@@ -64,16 +101,18 @@ class Orchestrator:
                     s = SourceState(name)
                     s.state = RiskState(info.get("state", "NORMAL"))
                     s.cooldown_until = info.get("cooldown_until", 0)
+                    s.total_requests = info.get("total_requests", 0)
+                    s.total_errors = info.get("total_errors", 0)
                     self.sources[name] = s
                 log.info(f"已加载 {len(self.sources)} 个数据源状态")
             except Exception as e:
                 log.warning(f"加载状态失败: {e}")
 
     def _save_state(self):
-        """持久化状态"""
         if self.state_file:
             data = {
                 "updated_at": datetime.now().isoformat(),
+                "mode": self.mode,
                 "sources": {}
             }
             for name, s in self.sources.items():
@@ -91,14 +130,21 @@ class Orchestrator:
                 json.dump(data, f, indent=2)
 
     def get_source(self, name: str) -> SourceState:
-        """获取或创建数据源状态"""
         if name not in self.sources:
             self.sources[name] = SourceState(name)
         return self.sources[name]
 
-    def can_request(self, name: str) -> tuple[bool, str]:
+    def can_request(self, name: str) -> Tuple[bool, str]:
         """检查是否可以向该数据源发请求"""
         s = self.get_source(name)
+
+        # DEV模式：不检查风控状态
+        if self.mode == "DEV":
+            return True, "DEV模式"
+
+        # PROD模式：检查session限制
+        if self.mode == "PROD" and s.session_requests >= 6:
+            return False, f"PROD session限制(≥6次)"
 
         if s.state == RiskState.BLOCKED:
             if s.cooldown_until > 0:
@@ -124,10 +170,16 @@ class Orchestrator:
         """记录请求响应，更新状态"""
         s = self.get_source(name)
         s.total_requests += 1
+        s.session_requests += 1
         s.last_request_time = time.time()
         s.last_status_code = status_code
 
         old_state = s.state
+
+        # DEV模式：不计入风控评分
+        if self.mode == "DEV":
+            self._log_request(name, status_code, response_time, data_rows)
+            return
 
         if status_code == 200:
             s.state = RiskState.NORMAL
@@ -141,14 +193,13 @@ class Orchestrator:
             if s.consecutive_429 >= 3:
                 s.state = RiskState.BLOCKED
                 s.cooldown_until = time.time() + random.uniform(600, 1800)
-                log.warning(f"[{name}] → BLOCKED (连续{ s.consecutive_429 }次429, "
+                log.warning(f"[{name}] → BLOCKED (连续{s.consecutive_429}次429, "
                             f"冷却{s.cooldown_remaining():.0f}s)")
             else:
                 s.state = RiskState.THROTTLED
                 wait = (2 ** s.consecutive_429) * 60 + random.uniform(0, 60)
                 s.cooldown_until = time.time() + wait
-                log.warning(f"[{name}] → THROTTLED (429, "
-                            f"冷却{wait:.0f}s)")
+                log.warning(f"[{name}] → THROTTLED (429, 冷却{wait:.0f}s)")
 
         elif status_code in (403, 421):
             s.consecutive_403 += 1
@@ -156,7 +207,7 @@ class Orchestrator:
             if s.consecutive_403 >= 2:
                 s.state = RiskState.BLOCKED
                 s.cooldown_until = time.time() + 3600
-                log.warning(f"[{name}] → BLOCKED (连续{ s.consecutive_403 }次{status_code}, "
+                log.warning(f"[{name}] → BLOCKED (连续{s.consecutive_403}次{status_code}, "
                             f"冷却3600s)")
             else:
                 s.state = RiskState.THROTTLED
@@ -174,29 +225,38 @@ class Orchestrator:
 
     def _log_request(self, name: str, status_code: int, response_time: float,
                      data_rows: int):
-        """记录请求日志"""
         entry = {
             "time": datetime.now().isoformat(),
             "source": name,
             "status": status_code,
             "response_time": round(response_time, 3),
             "data_rows": data_rows,
+            "mode": self.mode,
         }
         self.request_log.append(entry)
         if len(self.request_log) > 1000:
             self.request_log = self.request_log[-500:]
 
     def get_delay(self, name: str) -> float:
-        """根据状态返回请求间隔"""
+        """根据模式和状态返回请求间隔"""
         s = self.get_source(name)
+
+        if self.mode == "DEV":
+            return random.uniform(1, 3)
+
         if s.state == RiskState.BLOCKED:
             return 999
+
         if s.state == RiskState.THROTTLED:
             return random.uniform(5, 15)
-        return random.uniform(1, 3)
+
+        if self.mode == "TEST":
+            return random.uniform(2, 5)
+
+        # PROD
+        return random.uniform(1, 5)
 
     def get_status_summary(self) -> list:
-        """获取所有数据源状态摘要"""
         result = []
         for name, s in sorted(self.sources.items()):
             result.append({
@@ -210,7 +270,6 @@ class Orchestrator:
         return result
 
     def pause(self, name: str):
-        """手动暂停数据源"""
         s = self.get_source(name)
         s.state = RiskState.BLOCKED
         s.cooldown_until = 0
@@ -218,7 +277,6 @@ class Orchestrator:
         self._save_state()
 
     def resume(self, name: str):
-        """手动恢复数据源"""
         s = self.get_source(name)
         s.state = RiskState.NORMAL
         s.cooldown_until = 0
@@ -226,6 +284,11 @@ class Orchestrator:
         s.consecutive_403 = 0
         log.info(f"[{name}] 手动恢复")
         self._save_state()
+
+    def reset_session(self):
+        """重置session计数"""
+        for s in self.sources.values():
+            s.reset_session()
 
 
 def safe_request(orch: Orchestrator, source: str, url: str,
@@ -236,8 +299,14 @@ def safe_request(orch: Orchestrator, source: str, url: str,
         log.warning(f"[{source}] 跳过请求: {reason}")
         return None
 
+    # 统一User-Agent
+    if "headers" not in kwargs:
+        kwargs["headers"] = {}
+    if "User-Agent" not in kwargs["headers"]:
+        kwargs["headers"]["User-Agent"] = DEFAULT_UA
+
     delay = orch.get_delay(source)
-    if delay > 0 and delay < 100:
+    if 0 < delay < 100:
         time.sleep(delay)
 
     start = time.time()
