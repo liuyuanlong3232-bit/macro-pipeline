@@ -44,6 +44,21 @@
 - 冷却时间是否越来越长
 - 是否需要加入衰减机制
 
+### 问题4：恢复能力（Recovery Behavior）
+
+重点看：
+- BLOCKED之后能不能回NORMAL
+- THROTTLED是否能自然消退
+- state.json是否会"越跑越重"
+
+👉 这一点决定系统是不是"活的"
+
+观察指标：
+- BLOCKED源冷却结束后是否自动恢复
+- THROTTLED源连续成功后是否回到NORMAL
+- state.json文件大小是否持续增长
+- total_requests/total_errors比例是否合理
+
 ## 自动检查时间
 
 每天中午12:00，检查VPS日志：
