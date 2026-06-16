@@ -137,7 +137,7 @@ def gen_report():
             lines.append(f"    TIPS {t}%: 正实际利率环境, 黄金持有成本上升")
         else:
             lines.append(f"    TIPS {t}%: 负实际利率, 利好黄金")
-    except:
+    except Exception:
         pass
     if not news.empty:
         txt = str(news.values).lower()
@@ -157,7 +157,7 @@ def gen_report():
             lines.append("    金银比处于高位, 白银相对低估")
         elif ratio > 70:
             lines.append("    金银比中性偏高")
-    except:
+    except Exception:
         pass
     lines.append("")
 

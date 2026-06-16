@@ -9,7 +9,16 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv("/root/hermes-pipeline/.env")
+# 动态定位 .env 文件：优先项目根目录，回退到 home 目录
+_ENV_CANDIDATES = [
+    Path(__file__).resolve().parent / ".env",
+    Path.home() / "hermes-pipeline" / ".env",
+    Path.home() / ".hermes" / ".env",
+]
+for _p in _ENV_CANDIDATES:
+    if _p.exists():
+        load_dotenv(_p)
+        break
 
 CHART_DIR = Path.home() / "hermes-macro-data" / "charts"
 

@@ -3,10 +3,6 @@
 import os, sys, requests
 from datetime import datetime
 from pathlib import Path
-# Ensure system Python site-packages is accessible for pandas/numpy
-_sys_sp = r"C:\Users\Administrator\AppData\Local\Programs\Python\Python311\Lib\site-packages"
-if _sys_sp not in sys.path:
-    sys.path.insert(0, _sys_sp)
 from dotenv import load_dotenv
 import pandas as pd
 load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
@@ -190,7 +186,7 @@ def report():
     silver_avg, silver_wow = week_stats(yahoo_week, "白銀")
     
     try: ratio = f"{float(gold_s)/float(silver_s):.1f}" if gold_s and silver_s else "—"
-    except: ratio = "—"
+    except Exception: ratio = "—"
 
     tips_v = nv(fred, "TIPS") if fred is not None else None
     dxy_v = nv(fred, "美元") if fred is not None else None
@@ -239,7 +235,7 @@ def report():
     lines.append(f"| COMEX白银期货 | ${silver_f} | {silver_wow} | {silver_avg} | Yahoo Finance |" if silver_f else "| COMEX白银期货 | — | — | — | Yahoo Finance |")
     if gold_s and gold_f:
         try: basis = float(gold_f) - float(gold_s)
-        except: basis = 0
+        except Exception: basis = 0
         lines.append(f"| 期现基差 | ${basis:+.2f} | — | — | 计算 |")
     else:
         lines.append("| 期现基差 | — | — | — | 计算 |")
@@ -278,7 +274,7 @@ def report():
     mkt_str = "—"
     if nfp_v and cpi_v:
         try: mkt_str = f"非农{float(nfp_v)/1000:.1f}万/CPI {float(cpi_v):.1f}"
-        except: pass
+        except Exception: pass
     lines.append(f"| 非农/通胀边际预期 | {mkt_str} | — | 通胀韧性支撑黄金对冲需求 |")
     lines.append("")
 

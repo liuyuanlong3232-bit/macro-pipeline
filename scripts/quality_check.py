@@ -24,7 +24,7 @@ def q1(sql, params=None):
         else:
             cur.execute(sql)
         return cur.fetchone()
-    except:
+    except Exception:
         return None
 
 def check_table(table, date_col, max_delay_days, label, is_monthly=False):
@@ -37,7 +37,7 @@ def check_table(table, date_col, max_delay_days, label, is_monthly=False):
             return
         try:
             last_date = datetime.strptime(str(r[0])[:10], "%Y-%m-%d")
-        except:
+        except Exception:
             anomalies.append([label, table, str(r[0]), "⚠️时效性异常", "日期格式错误"])
             return
         delay = (NOW - last_date).days
@@ -64,8 +64,10 @@ def check_extreme(table, col, lo, hi, label):
                     anomalies.append([label, table, v, "🏷️极值异常", f"{which} = {v} < 下限{lo}"])
                 if hi is not None and v > hi:
                     anomalies.append([label, table, v, "🏷️极值异常", f"{which} = {v} > 上限{hi}"])
-            except: pass
-    except: pass
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 def check_dead_table(table):
     """检查死表"""
@@ -74,7 +76,8 @@ def check_dead_table(table):
         n = cur.fetchone()[0]
         if n <= 3:
             anomalies.append([table, table, f"{n}行", "📋空表/死表", "行数过少，采集可能失效"])
-    except: pass
+    except Exception:
+        pass
 
 def check_cross_xau_tips():
     """黄金-TIPS背离"""
@@ -88,7 +91,8 @@ def check_cross_xau_tips():
             if tips_now - tips_prev > 0.05 and gold > 0:
                 anomalies.append(["黄金", "TIPS vs XAU", f"TIPS+{tips_now-tips_prev:.2f}",
                     "🔗逻辑背离", f"TIPS上升但黄金未跌({gold})"])
-    except: pass
+    except Exception:
+        pass
 
 def check_dxy_deviation():
     """DXY口径交叉验证：ICE vs DTWEXAFEGS 偏差监控"""
@@ -201,13 +205,14 @@ for name, info in checks.items():
         continue
     tbl, col, kw = info
     try:
-        cur.execute(f'SELECT "{col}", 日期 FROM "{tbl}" WHERE 品種 LIKE "%{kw}%" ORDER BY 日期 DESC LIMIT 1')
+        cur.execute(f'SELECT "{col}", 日期 FROM "{tbl}" WHERE 品種 LIKE ? ORDER BY 日期 DESC LIMIT 1',
+                    (f"%{kw}%",))
         r = cur.fetchone()
         if r:
             print(f"  {name}: {r[0]} | {r[1]} | ✅")
         else:
             print(f"  {name}: — | — | ❌")
-    except:
+    except Exception:
         print(f"  {name}: ERROR")
 
 conn.close()

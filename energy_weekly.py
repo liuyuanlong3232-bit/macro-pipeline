@@ -157,6 +157,7 @@ def report():
 
     # Yahoo CSV数据时效检查 — 如果CSV最新日期落后2天以上，用直连API补充
     yahoo_stale = True
+    days_diff = 999  # 默认值，异常时视为过期
     if yahoo is not None and not yahoo.empty and "日期" in yahoo.columns:
         try:
             latest_yahoo_date = yahoo["日期"].max()
@@ -164,7 +165,7 @@ def report():
             days_diff = (dt.strptime(TODAY, "%Y-%m-%d") - dt.strptime(str(latest_yahoo_date), "%Y-%m-%d")).days
             yahoo_stale = days_diff > 2  # 超过2天视为过期(覆盖周末)
         except Exception:
-            yahoo_stale = days_diff >= 2  # 超过2天视为过期(覆盖周末)
+            yahoo_stale = True  # 解析失败时视为过期
 
     if yahoo_stale:
         print(f"[能源报告] Yahoo CSV数据过期({days_diff}天)，使用直连API获取最新价格...")
@@ -232,7 +233,7 @@ def report():
     spread = ""
     if brent_p and wti_p:
         try: spread = f"${float(brent_p)-float(wti_p):+.2f}"
-        except: spread = "—"
+        except Exception: spread = "—"
     lines.append(f"| 布伦特-WTI价差 | — | {spread} | 计算 |")
     lines.append("")
     

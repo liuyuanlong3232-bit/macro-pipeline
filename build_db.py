@@ -36,10 +36,11 @@ def build_db():
 
     conn.close()
     print(f"\n数据库: {DB_PATH}")
-    conn2 = sqlite3.connect(str(DB_PATH))
-    tables = conn2.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    # 复用连接查询表数量
+    conn = sqlite3.connect(str(DB_PATH))
+    tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     print(f"表数量: {len(tables)}")
-    conn2.close()
+    conn.close()
 
 if __name__ == "__main__":
     build_db()

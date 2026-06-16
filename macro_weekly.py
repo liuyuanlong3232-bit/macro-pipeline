@@ -651,7 +651,7 @@ def report():
     def get_cot_signal(zscore):
         if zscore is None: return "—"
         try: z = float(zscore)
-        except: return "—"
+        except Exception: return "—"
         if z >= 1.5: return "极多(看涨过热)"
         elif z >= 0.5: return "偏多"
         elif z > -0.5: return "中性"
@@ -661,7 +661,7 @@ def report():
     def get_cot_position(net):
         if net is None: return "—"
         try: n = float(net)
-        except: return "—"
+        except Exception: return "—"
         if n > 0: return f"净多 {n:,.0f} 手"
         else: return f"净空 {abs(n):,.0f} 手"
 

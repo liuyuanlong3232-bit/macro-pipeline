@@ -55,9 +55,7 @@ def _load_env_key(key_name):
     return os.getenv(key_name, "")
 
 FRED_API_KEY = _load_env_key("FRED_API_KEY")
-FRED_API_KEY = _load_env_key("FRED_API_KEY")
 EIA_API_KEY = _load_env_key("EIA_API_KEY")
-print(f"[DEBUG] FRED_API_KEY loaded: len={len(FRED_API_KEY)}, first8={FRED_API_KEY[:8] if FRED_API_KEY else 'EMPTY'}")
 
 # 终极兜底
 if not FRED_API_KEY or len(FRED_API_KEY) != 32:
@@ -1023,7 +1021,7 @@ def fetch_eia_steo():
                     for item in items:
                         try:
                             vals.append(float(item["value"]))
-                        except:
+                        except Exception:
                             pass
                     trend = None
                     if len(vals) >= 2:

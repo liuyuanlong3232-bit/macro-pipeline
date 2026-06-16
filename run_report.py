@@ -5,7 +5,8 @@ from pathlib import Path
 from datetime import datetime
 
 TODAY = datetime.now().strftime("%Y-%m-%d")
-PIPELINE = Path("/root/hermes-pipeline")
+PIPELINE = Path(__file__).resolve().parent
+DATA_DIR = Path.home() / "hermes-macro-data"
 
 SCRIPTS = {
     "macro": {
@@ -69,7 +70,7 @@ def run(name):
         print(f"  ⏭️ 无需生成脚本，直接发送已有报告")
 
     # 3. 发送邮件
-    report_path = Path("/root/hermes-macro-data/reports") / cfg["outfile"]
+    report_path = DATA_DIR / "reports" / cfg["outfile"]
     if not report_path.exists():
         print(f"  ❌ 报告文件不存在: {report_path}")
         return False

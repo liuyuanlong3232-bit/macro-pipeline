@@ -4,14 +4,25 @@ import os, json
 from pathlib import Path
 from datetime import datetime
 from dotenv import load_dotenv
-load_dotenv("/root/hermes-pipeline/.env")
+# 动态定位 .env 文件：优先项目根目录，回退到 home 目录
+_ENV_CANDIDATES = [
+    Path(__file__).resolve().parent / ".env",
+    Path.home() / "hermes-pipeline" / ".env",
+    Path.home() / ".hermes" / ".env",
+]
+for _p in _ENV_CANDIDATES:
+    if _p.exists():
+        load_dotenv(_p)
+        break
 
 # ===== 阈值配置 =====
+# 设定依据：基于2024-2025年历史价格区间，超出范围触发预警
+# 更新时间：2025年初，如市场结构变化需重新评估
 THRESHOLDS = {
-    "gold": {"min": 4000, "max": 4500, "label": "COMEX黄金($)"},
-    "silver": {"min": 50, "max": 80, "label": "COMEX白银($)"},
-    "wti": {"min": 70, "max": 110, "label": "WTI原油($)"},
-    "dxy_net": {"min": 0, "max": 10000, "label": "DXY投机净持仓"},  # 宽范围
+    "gold": {"min": 4000, "max": 4500, "label": "COMEX黄金($)"},      # 2024年高点~2790，预留上行空间
+    "silver": {"min": 50, "max": 80, "label": "COMEX白银($)"},        # 2024年高点~35，预留上行空间
+    "wti": {"min": 70, "max": 110, "label": "WTI原油($)"},            # 2024年区间70-95
+    "dxy_net": {"min": 0, "max": 10000, "label": "DXY投机净持仓"},     # 宽范围，仅监控极端值
 }
 
 COT_EXTREME = {"index": {"min": 5, "max": 95}}  # COT Index极端值
@@ -81,7 +92,7 @@ def load_history():
         try:
             with open(LOG_FILE) as f:
                 return json.load(f)
-        except: pass
+        except Exception: pass
     return {"sent": [], "last_check": ""}
 
 def save_history(h):

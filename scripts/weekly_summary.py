@@ -68,7 +68,7 @@ week_changes = {}
 for name, vals in prices.items():
     if len(vals) >= 2:
         try: start = float(vals[0][1]); end = float(vals[-1][1])
-        except: continue
+        except Exception: continue
         if start and start != 0:
             week_changes[name] = (end - start) / start * 100
 

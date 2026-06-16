@@ -16,7 +16,7 @@ def get_proxy():
     try:
         r = requests.get("http://127.0.0.1:10808", timeout=1)
         return {"http": "http://127.0.0.1:10808", "https": "http://127.0.0.1:10808"}
-    except:
+    except Exception:
         return None
 PROXY = None  # 延迟到调用时设置
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -298,7 +298,7 @@ def fetch_usda_crop_condition(use_proxy=True):
                 try:
                     dt = datetime.strptime(date_match.group(1), "%B %d, %Y")
                     result["date"] = dt.strftime("%Y-%m-%d")
-                except:
+                except Exception:
                     result["date"] = date_match.group(1)
 
             # 解析 Corn Condition 表
@@ -384,7 +384,7 @@ def fetch_bdi(use_proxy=True):
                 try:
                     dt = datetime.strptime(date_m.group(1), "%B %d, %Y")
                     result["date"] = dt.strftime("%Y-%m-%d")
-                except:
+                except Exception:
                     pass
 
             # 从描述提取月度涨跌百分比: "fallen 14.42%"
@@ -433,14 +433,14 @@ def fetch_bdi(use_proxy=True):
             try:
                 result["price"] = float(price_el.get_text(strip=True).replace(",", ""))
                 result["value"] = result["price"]
-            except:
+            except Exception:
                 pass
 
         chg_el = soup.find(attrs={"data-test": "instrument-price-change"})
         if chg_el:
             try:
                 result["change"] = float(chg_el.get_text(strip=True).replace(",", ""))
-            except:
+            except Exception:
                 pass
 
         pct_el = soup.find(attrs={"data-test": "instrument-price-change-percent"})
@@ -448,7 +448,7 @@ def fetch_bdi(use_proxy=True):
             try:
                 pct_str = pct_el.get_text(strip=True).replace("(", "").replace(")", "").replace("%", "")
                 result["change_pct"] = float(pct_str)
-            except:
+            except Exception:
                 pass
 
         for attr in ["prevClose", "open"]:
@@ -456,7 +456,7 @@ def fetch_bdi(use_proxy=True):
             if el:
                 try:
                     result[attr] = float(el.get_text(strip=True).replace(",", ""))
-                except:
+                except Exception:
                     pass
 
         date_el = soup.find(attrs={"data-test": "trading-time-label"})
@@ -592,7 +592,7 @@ def fetch_cftc_cot_treasury():
             try:
                 dt = datetime.strptime(date_m.group(1), "%B %d, %Y")
                 result["date"] = dt.strftime("%Y-%m-%d")
-            except:
+            except Exception:
                 pass
         treasury_patterns = {
             "UST 2Y NOTE": "2Y", "UST 5Y NOTE": "5Y",
@@ -616,11 +616,11 @@ def fetch_cftc_cot_treasury():
                             "am_net": am_net,
                             "lev_net": lev_net,
                         }
-                    except:
+                    except Exception:
                         pass
                     break
         return result if len(result) > 2 else None
-    except:
+    except Exception:
         pass
     # Fallback: 验证数据 (2026-06-09 from CFTC官网)
     return {
@@ -647,7 +647,7 @@ def fetch_cftc_cot_cotton():
             try:
                 dt = datetime.strptime(date_m.group(1), "%B %d, %Y")
                 result["date"] = dt.strftime("%Y-%m-%d")
-            except:
+            except Exception:
                 pass
         idx = text.find("COTTON NO. 2")
         if idx == -1:
@@ -668,11 +668,11 @@ def fetch_cftc_cot_cotton():
                         result["managed_net"] = managed_long + managed_spread - managed_short
                         result["managed_long"] = managed_long
                         result["managed_short"] = managed_short
-                    except:
+                    except Exception:
                         pass
                 break
         return result if "oi" in result else None
-    except:
+    except Exception:
         pass
     # Fallback: 验证数据 (2026-06-09 from CFTC官网)
     return {
@@ -713,7 +713,7 @@ def fetch_ism_pmi():
                     if len(valid) > 1:
                         result["prev"] = float(valid[1]["value"])
                     return result
-    except:
+    except Exception:
         pass
     # Fallback: 手动验证数据 (2026-06-14 from ISM官网)
     return {"value": 54.0, "prev": 52.7, "date": "2026-05", "source": "ISM (verified)"}
@@ -734,7 +734,7 @@ def fetch_global_m2():
             if m:
                 result["eur_m2_date"] = m.group(1)
                 result["eur_m2"] = m.group(2)
-    except:
+    except Exception:
         pass
     # 日本M2 — BOJ Money Stock Statistics
     try:
@@ -746,7 +746,7 @@ def fetch_global_m2():
                 result["jp_m2_date"] = m.group(1)
                 result["jp_m2"] = m.group(2)
                 result["jp_m2_yoy"] = m.group(3)
-    except:
+    except Exception:
         pass
     # Fallback: 验证数据 (2026-06-14 from ECB/BOJ官网)
     if "eur_m2" not in result:
@@ -821,11 +821,11 @@ def fetch_cn_warehouse_receipts():
                 if m:
                     try:
                         result[display_name] = int(m.group(1).replace(",", ""))
-                    except:
+                    except Exception:
                         pass
             if len(result) > 1:
                 return result
-    except:
+    except Exception:
         pass
     # Fallback: 验证数据 (2026-06-12 from DCE/CZCE官网 via 99qh.com)
     return {
