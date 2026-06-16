@@ -300,7 +300,7 @@ def safe_request(orch: Orchestrator, source: str, url: str,
         return None
 
     # 统一User-Agent
-    if "headers" not in kwargs:
+    if "headers" not in kwargs or kwargs["headers"] is None:
         kwargs["headers"] = {}
     if "User-Agent" not in kwargs["headers"]:
         kwargs["headers"]["User-Agent"] = DEFAULT_UA
