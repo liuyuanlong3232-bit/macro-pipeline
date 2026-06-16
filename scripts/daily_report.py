@@ -292,15 +292,24 @@ def main():
 
     report = "\n".join(L)
 
-    # ═══════ 输出+发送 ═══════
+    # ═══════ 输出 ═══════
     outdir = Path.home() / "hermes-macro-data" / "reports"
     outdir.mkdir(parents=True, exist_ok=True)
     outpath = outdir / ("daily_" + TODAY + ".md")
     outpath.write_text(report, encoding="utf-8")
     print("日报: " + str(outpath))
 
-    from send_email import send_report
-    send_report(str(outpath), "macro")
+    # ═══════ 邮件(容错) ═══════
+    try:
+        from send_email import send_report
+        send_report(str(outpath), "macro")
+    except Exception as e:
+        print("邮件发送失败(不影响日报生成): " + str(e))
+
+    # ═══════ 输出摘要(供本地Hermes读取) ═══════
+    print("")
+    print("=" * 50)
+    print(report[:500])
 
     # 存档异常信号供周报使用
     sigdir = Path.home() / "hermes-macro-data" / "signals"
