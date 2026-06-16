@@ -40,10 +40,15 @@ import pandas as pd
 # 公共工具函数
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shared.utils import load_env, DATA_DIR as _DATA_DIR
+from shared.orchestrator import Orchestrator, RiskState, safe_request
 
 load_env()
 # macro_pipeline 需要直接从.env文件读取key（确保不受环境变量污染）
 ENV_PATH = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env"
+
+# 初始化风控调度器
+ORCH_STATE = DATA_DIR / "meta" / "orchestrator_state.json"
+orch = Orchestrator(str(ORCH_STATE))
 
 # 强制从.env文件读取API key（覆盖可能残留的旧环境变量）
 def _load_env_key(key_name):
@@ -115,18 +120,17 @@ TODAY = datetime.now().strftime("%Y-%m-%d")
 # ─── 工具函數 ───────────────────────────────────────────────
 
 def safe_get(url: str, params: dict = None, headers: dict = None,
-             timeout: int = 30, retries: int = 2) -> Optional[dict]:
-    """帶重試的安全 GET 請求"""
+             timeout: int = 30, retries: int = 2, source: str = "unknown") -> Optional[dict]:
+    """帶重試的安全 GET 請求（集成Orchestrator风控）"""
     for attempt in range(retries + 1):
-        try:
-            resp = requests.get(url, params=params, headers=headers,
-                                timeout=timeout)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.exceptions.RequestException as e:
-            log.warning(f"[{attempt+1}/{retries+1}] GET {url} 失敗: {e}")
-            if attempt < retries:
-                time.sleep(2 ** attempt)
+        resp = safe_request(orch, source, url, params=params, headers=headers, timeout=timeout)
+        if resp is not None:
+            try:
+                return resp.json()
+            except:
+                return resp.text
+        if attempt < retries:
+            time.sleep(2 ** attempt)
     return None
 
 
@@ -404,8 +408,8 @@ def fetch_cftc():
     # 通過公共 COT 報告解析 (CFTC 公開報告)
     # CFTC dea.txt 已失效(404)，改用 FinFutWk.txt
     try:
-        resp = requests.get("https://www.cftc.gov/dea/newcot/FinFutWk.txt", timeout=30)
-        if resp.status_code == 200:
+        resp = safe_request(orch, "cftc", "https://www.cftc.gov/dea/newcot/FinFutWk.txt", timeout=30)
+        if resp is not None and resp.status_code == 200:
             lines = resp.text.split("\n")
             # 找關鍵品種
             keywords = ["GOLD", "SILVER", "CRUDE OIL", "LIGHT SWEET"]
@@ -595,7 +599,7 @@ def fetch_fedwatch():
         for day in [17, 16, 18, 15, 19, 14, 20]:
             event_id = f"fomc-{y}-{m:02d}-{day:02d}"
             try:
-                r = requests.get(f"{base}/no_change", params={"event_id": event_id, "hours": 1},
+                r = safe_request(orch, "fedwatch", f"{base}/no_change", params={"event_id": event_id, "hours": 1},
                                  headers=headers, timeout=10)
                 if r.status_code == 200:
                     data = r.json()
@@ -611,7 +615,7 @@ def fetch_fedwatch():
                                     hold = f"{hold_val * 100:.1f}"
                                 break
                         # cut_25bps
-                        r2 = requests.get(f"{base}/cut_25bps", params={"event_id": event_id, "hours": 1},
+                        r2 = safe_request(orch, "fedwatch", f"{base}/cut_25bps", params={"event_id": event_id, "hours": 1},
                                           headers=headers, timeout=10)
                         if r2.status_code == 200:
                             d2 = r2.json()
@@ -624,7 +628,7 @@ def fetch_fedwatch():
                                         cut_25 = f"{cut_val * 100:.1f}"
                                     break
                         # hike_25bps
-                        r3 = requests.get(f"{base}/hike_25bps", params={"event_id": event_id, "hours": 1},
+                        r3 = safe_request(orch, "fedwatch", f"{base}/hike_25bps", params={"event_id": event_id, "hours": 1},
                                           headers=headers, timeout=10)
                         if r3.status_code == 200:
                             d3 = r3.json()
@@ -777,29 +781,31 @@ def patch_cot():
 # ─── 13. Yahoo Finance 期货 (黄金/白银/原油) ──────────────
 
 def yahoo_quote(symbol, retries=3):
-    """Yahoo Chart API 带指数退避"""
-    import time, random
+    """Yahoo Chart API 带指数退避（集成Orchestrator风控）"""
+    import random
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
     params = {"range": "5d", "interval": "1d"}
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    
+
     for attempt in range(retries):
-        try:
-            r = requests.get(url, params=params, headers=headers, timeout=15)
-            if r.status_code == 200:
-                return r.json()
-            elif r.status_code == 429:
+        resp = safe_request(orch, "yahoo", url, params=params, headers=headers, timeout=15)
+        if resp is not None:
+            if resp.status_code == 200:
+                try:
+                    return resp.json()
+                except:
+                    return None
+            elif resp.status_code == 429:
                 wait = (2 ** attempt) + random.random() * 2
                 log.warning(f"Yahoo 429限流, 等待{wait:.1f}s")
                 time.sleep(wait)
-            elif r.status_code == 403:
+            elif resp.status_code == 403:
                 log.warning("Yahoo 403被禁, 等待5s")
                 time.sleep(5)
             else:
                 if attempt < retries - 1:
                     time.sleep(2 ** attempt)
-        except Exception as e:
-            log.warning(f"Yahoo请求失败: {e}")
+        else:
             time.sleep(3)
     return None
 
@@ -1003,7 +1009,7 @@ def fetch_eia_steo():
     
     for sid, info in series.items():
         try:
-            r = requests.get("https://api.eia.gov/v2/steo/data/", params={
+            r = safe_request(orch, "eia", "https://api.eia.gov/v2/steo/data/", params={
                 "api_key": os.getenv("EIA_API_KEY", ""),
                 "facets[seriesId][]": sid,
                 "data[0]": "value",
@@ -1096,6 +1102,15 @@ def run_all():
     print(f"\n{'='*60}")
     print(f"  採集完成！成功: {summary['成功']}, 跳過: {summary['跳過']}, 失敗: {summary['失敗']}")
     print(f"  數據目錄: {DATA_DIR}")
+
+    # 显示风控状态
+    print(f"\n  🔍 風控状态:")
+    for s in orch.get_status_summary():
+        icon = "🟢" if s["state"] == "NORMAL" else "🟡" if s["state"] == "THROTTLED" else "🔴"
+        cd = f" (冷却{s['cooldown_remaining']}s)" if s["cooldown_remaining"] > 0 else ""
+        print(f"    {icon} {s['name']}: {s['state']}{cd} | 请求{s['total_requests']} 错误{s['total_errors']}")
+
+    print(f"{'='*60}")
     print(f"{'='*60}")
     summary_data = {
         "日期": TODAY, "運行時間": datetime.now().isoformat(),
