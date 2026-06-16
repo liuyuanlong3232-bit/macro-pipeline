@@ -37,18 +37,18 @@ def get_data():
             "SELECT 最新價, \"日漲跌幅%\" FROM yahoo_futures WHERE 品種 LIKE ?",
             (f"%{keyword}%",)
         ).fetchone()
-        if row:
-            data[name] = {"price": float(row[0]), "change": float(row[1])}
+        if row and row[0] is not None:
+            data[name] = {"price": float(row[0]), "change": float(row[1] or 0)}
 
     # COT数据
     cot_rows = db.execute(
         'SELECT 品種, "投機淨持倉", "COT Index(26W)" FROM cotdata'
     ).fetchall()
-    data["cot"] = [{"name": r[0], "net": float(r[1]), "index": float(r[2])} for r in cot_rows]
+    data["cot"] = [{"name": r[0], "net": float(r[1] or 0), "index": float(r[2] or 0)} for r in cot_rows if r[1] is not None]
 
     # DXY净持仓
     for r in cot_rows:
-        if "DXY" in r[0] or "美元" in r[0]:
+        if ("DXY" in r[0] or "美元" in r[0]) and r[1] is not None:
             data["dxy_net"] = float(r[1])
 
     db.close()
