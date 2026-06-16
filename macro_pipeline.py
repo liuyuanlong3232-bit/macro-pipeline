@@ -55,7 +55,6 @@ CURRENT_MODE = mode_mgr.get_mode().value
 # 初始化风控调度器（根据模式）
 ORCH_STATE = _DATA_DIR / "meta" / "orchestrator_state.json"
 orch = Orchestrator(str(ORCH_STATE), mode=CURRENT_MODE)
-log.info(f"运行模式: {CURRENT_MODE}")
 
 # 强制从.env文件读取API key（覆盖可能残留的旧环境变量）
 def _load_env_key(key_name):
@@ -120,6 +119,7 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("macro-pipeline")
+log.info(f"运行模式: {CURRENT_MODE}")
 
 TODAY = datetime.now().strftime("%Y-%m-%d")
 
