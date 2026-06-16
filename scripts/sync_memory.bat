@@ -10,7 +10,7 @@ echo.
 
 :: 1. 导出本地记忆
 echo [1/4] 导出本地记忆...
-cd /d C:\Users\Administrator\hermes-macro-pipeline
+cd /d D:\hermes\pipeline
 python scripts/sync_memory.py
 if %errorlevel% neq 0 (
     echo ❌ 导出失败

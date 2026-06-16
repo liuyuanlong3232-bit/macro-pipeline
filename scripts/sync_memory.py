@@ -17,7 +17,7 @@ def main():
         content = f.read()
     
     # 保存到本地Git仓库，然后再上传
-    git_dir = Path.home() / "hermes-macro-pipeline"
+    git_dir = Path("/d/hermes/pipeline")
     sync_file = git_dir / "memories" / "LOCAL_MEMORY.md"
     sync_file.parent.mkdir(parents=True, exist_ok=True)
     

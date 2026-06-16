@@ -18,7 +18,7 @@ echo [1/4] 今日日期: %today%
 
 :: 第1步：本地采集USDA
 echo [2/4] 正在本地采集USDA数据...
-cd /d C:\Users\Administrator\hermes-macro-pipeline
+cd /d D:\hermes\pipeline
 python3 macro_pipeline.py --source usda
 if %errorlevel% neq 0 (
     echo ❌ 采集失败，可能是网络问题，检查代理
