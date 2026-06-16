@@ -47,7 +47,7 @@ load_env()
 ENV_PATH = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env"
 
 # 初始化风控调度器
-ORCH_STATE = DATA_DIR / "meta" / "orchestrator_state.json"
+ORCH_STATE = _DATA_DIR / "meta" / "orchestrator_state.json"
 orch = Orchestrator(str(ORCH_STATE))
 
 # 强制从.env文件读取API key（覆盖可能残留的旧环境变量）
