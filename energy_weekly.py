@@ -2,29 +2,23 @@
 """
 能源周报生成器 - 按公众号模板
 """
-import os, re, json, requests
+import os, sys, re, json, requests
 from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 import pandas as pd
+
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import load_csv, yahoo_quote_direct
+
 load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
 EIA_API_KEY = os.getenv("EIA_API_KEY")
 DATA_DIR = Path.home() / "hermes-macro-data"
 TODAY = datetime.now().strftime("%Y-%m-%d")
 
-def load(name):
-    p = DATA_DIR / "csv" / TODAY / f"{name}.csv"
-    if p.exists(): return pd.read_csv(p)
-    # 回退：查找最近有该文件的日期目录
-    csv_root = DATA_DIR / "csv"
-    if csv_root.exists():
-        from datetime import timedelta
-        base = datetime.strptime(TODAY, "%Y-%m-%d")
-        for i in range(1, 8):
-            d = (base - timedelta(days=i)).strftime("%Y-%m-%d")
-            p2 = csv_root / d / f"{name}.csv"
-            if p2.exists(): return pd.read_csv(p2)
-    return pd.DataFrame()
+# 兼容：load_csv 在本文件中仍叫 load
+load = load_csv
 
 def gv(df, kw):
     for c in df.columns:
@@ -127,27 +121,6 @@ def fmt_chg(chg):
     arrow = "↑" if chg > 0 else "↓" if chg < 0 else "→"
     return f"{arrow} {abs(chg):.0f}"
 
-def yahoo_quote_direct(symbol, retries=3):
-    """Yahoo Finance 直连API — CSV数据过期时的fallback"""
-    import time, random
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-    params = {"range": "5d", "interval": "1d"}
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    for attempt in range(retries):
-        try:
-            r = requests.get(url, params=params, headers=headers, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                result = data["chart"]["result"][0]
-                meta = result.get("meta", {})
-                price = meta.get("regularMarketPrice")
-                prev = meta.get("chartPreviousClose")
-                return price, prev, TODAY
-            elif r.status_code == 429:
-                time.sleep((2 ** attempt) + random.random() * 2)
-        except Exception:
-            time.sleep(2 ** attempt)
-    return None, None, None
 
 def report():
     yahoo = load("yahoo_futures")

@@ -1,38 +1,22 @@
 #!/usr/bin/env python3
 """全球+中国农业周度研究报告"""
-import os
+import os, sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 import pandas as pd
 import requests
 
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import load_csv
+
 load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / "hermes-pipeline"))) / ".env")
 DATA_DIR = Path.home() / "hermes-macro-data"
 TODAY = datetime.now().strftime("%Y-%m-%d")
 
-def load(name):
-    p = DATA_DIR / "csv" / TODAY / f"{name}.csv"
-    if p.exists(): return pd.read_csv(p)
-    # 回退：查找最近有该文件的日期目录
-    csv_root = DATA_DIR / "csv"
-    if csv_root.exists():
-        for i in range(1, 8):
-            d = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-            p2 = csv_root / d / f"{name}.csv"
-            if p2.exists(): return pd.read_csv(p2)
-    # 手动读SQLite
-    import sqlite3
-    db_path = DATA_DIR / "hermes.db"
-    if db_path.exists():
-        try:
-            db = sqlite3.connect(str(db_path))
-            df = pd.read_sql(f'SELECT * FROM "{name}"', db)
-            db.close()
-            return df
-        except:
-            pass
-    return pd.DataFrame()
+# 兼容：load_csv 在本文件中仍叫 load
+load = load_csv
 
 # ═══ 方向判断工具函数 ═══
 def fmt_score(val):

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """全球宏观周度研究报告 - 输出结构匹配固定提示词模板"""
-import os
+import os, sys
 import re
 import requests
 from datetime import datetime, timedelta
@@ -10,26 +10,14 @@ import pandas as pd
 import akshare as ak
 import tushare as ts
 
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import load_csv, fetch_fedwatch, yahoo_quote_direct
+
 load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
 DATA_DIR = Path.home() / "hermes-macro-data"
 TODAY = datetime.now().strftime("%Y-%m-%d")
 TS_TOKEN = os.getenv("TUSHARE_TOKEN")
-
-
-def load_csv(name):
-    """加载CSV，优先TODAY目录，找不到则回退到最近日期目录"""
-    p = DATA_DIR / "csv" / TODAY / f"{name}.csv"
-    if p.exists():
-        return pd.read_csv(p)
-    csv_root = DATA_DIR / "csv"
-    if csv_root.exists():
-        base = datetime.strptime(TODAY, "%Y-%m-%d")
-        for i in range(1, 8):
-            d = (base - timedelta(days=i)).strftime("%Y-%m-%d")
-            p2 = csv_root / d / f"{name}.csv"
-            if p2.exists():
-                return pd.read_csv(p2)
-    return pd.DataFrame()
 
 
 def gv(df, kw):
@@ -129,96 +117,6 @@ def fetch_social_financing():
     return None
 
 
-def yahoo_quote_direct(symbol, retries=3):
-    """直接从Yahoo Finance API获取实时报价"""
-    import time, random
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-    params = {"range": "5d", "interval": "1d"}
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    for attempt in range(retries):
-        try:
-            r = requests.get(url, params=params, headers=headers, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                result = data["chart"]["result"][0]
-                meta = result.get("meta", {})
-                price = meta.get("regularMarketPrice")
-                return price, TODAY
-            elif r.status_code == 429:
-                wait = (2 ** attempt) + random.random() * 2
-                time.sleep(wait)
-            else:
-                if attempt < retries - 1:
-                    time.sleep(2 ** attempt)
-        except Exception:
-            time.sleep(2 ** attempt)
-    return None, None
-
-
-def fetch_fedwatch_oddpool():
-    """从oddpool.com API获取FedWatch FOMC降息概率"""
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    base = "https://www.oddpool.com/api/events/history"
-    # 动态获取最近的FOMC event_id（取当前年月）
-    now = datetime.now()
-    # FOMC通常在月中，尝试当月和下月
-    for m_offset in range(0, 2):
-        m = now.month + m_offset
-        y = now.year + (m - 1) // 12
-        m = (m - 1) % 12 + 1
-        for day in [17, 16, 18, 15, 19, 14, 20]:
-            event_id = f"fomc-{y}-{m:02d}-{day:02d}"
-            try:
-                r = requests.get(f"{base}/no_change", params={"event_id": event_id, "hours": 1},
-                                 headers=headers, timeout=10)
-                if r.status_code == 200:
-                    data = r.json()
-                    if data.get("kalshi") or data.get("polymarket"):
-                        # 取最新数据点
-                        hold = cut_25 = hike_25 = None
-                        for venue in ["kalshi", "polymarket"]:
-                            items = data.get(venue, [])
-                            if items:
-                                latest = items[-1]
-                                p = latest.get("probabilities", {})
-                                hold_val = p.get("no_change")
-                                if hold_val is not None:
-                                    hold = f"{hold_val * 100:.1f}"
-                                break
-                        # 获取 cut_25bps
-                        r2 = requests.get(f"{base}/cut_25bps", params={"event_id": event_id, "hours": 1},
-                                          headers=headers, timeout=10)
-                        if r2.status_code == 200:
-                            d2 = r2.json()
-                            for venue in ["kalshi", "polymarket"]:
-                                items = d2.get(venue, [])
-                                if items:
-                                    p = items[-1].get("probabilities", {})
-                                    cut_val = p.get("cut_25bps")
-                                    if cut_val is not None:
-                                        cut_25 = f"{cut_val * 100:.1f}"
-                                    break
-                        # 获取 hike_25bps
-                        r3 = requests.get(f"{base}/hike_25bps", params={"event_id": event_id, "hours": 1},
-                                          headers=headers, timeout=10)
-                        if r3.status_code == 200:
-                            d3 = r3.json()
-                            for venue in ["kalshi", "polymarket"]:
-                                items = d3.get(venue, [])
-                                if items:
-                                    p = items[-1].get("probabilities", {})
-                                    hike_val = p.get("hike_25bps")
-                                    if hike_val is not None:
-                                        hike_25 = f"{hike_val * 100:.1f}"
-                                    break
-                        vals = [float(v) for v in [hold, cut_25, hike_25] if v is not None]
-                        if vals and sum(vals) > 105:
-                            print(f"[FedWatch] 概率之和异常: {sum(vals):.1f}%, 数据丢弃")
-                            return None
-                        return {"hold": hold, "cut_25": cut_25, "hike_25": hike_25}
-            except Exception:
-                continue
-    return None
 
 
 def fmt_val(v, kind="number"):
@@ -448,7 +346,7 @@ def report():
     lines.append(f"| 欧元/日元离岸汇率 | — | →震荡 |")
 
     # FedWatch降息概率
-    fedwatch = fetch_fedwatch_oddpool()
+    fedwatch = fetch_fedwatch()
     cut_pct = fedwatch.get("cut_25") if fedwatch else None
     hold_pct = fedwatch.get("hold") if fedwatch else None
     if cut_pct is not None:
@@ -466,7 +364,7 @@ def report():
     if vix_val is None:
         vix_val, _ = gv_vix(vix_df)
     if vix_val is None:
-        vix_val, _ = yahoo_quote_direct("^VIX")
+        vix_val, _, _ = yahoo_quote_direct("^VIX")
     vix_str = fmt_val(vix_val, "index") if vix_val is not None else "—"
     dir_vix = "↑恐慌" if vix_val and float(vix_val) > 25 else ("↓平稳" if vix_val and float(vix_val) < 15 else "→震荡") if vix_val else "→震荡"
     lines.append(f"| VIX恐慌指数 | {vix_str} | {dir_vix} |")
@@ -501,11 +399,11 @@ def report():
     usdcnh, _ = gv_yf(yf, "CNH=X")
     # Yahoo实时回退
     if eurusd is None:
-        eurusd, _ = yahoo_quote_direct("EURUSD=X")
+        eurusd, _, _ = yahoo_quote_direct("EURUSD=X")
     if usdjpy is None:
-        usdjpy, _ = yahoo_quote_direct("USDJPY=X")
+        usdjpy, _, _ = yahoo_quote_direct("USDJPY=X")
     if usdcnh is None:
-        usdcnh, _ = yahoo_quote_direct("CNH=X")
+        usdcnh, _, _ = yahoo_quote_direct("CNH=X")
 
     # 计算周环比和周均价
     dgs2_wow, dgs2_avg = wow_stats(fred, "2 年期國債")

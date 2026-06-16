@@ -5,21 +5,17 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 import pandas as pd
+
+# 公共工具函数
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from shared.utils import load_csv, load_week, fetch_fedwatch, yahoo_quote_direct
+
 load_dotenv(Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / ".env")
 DATA_DIR = Path.home() / "hermes-macro-data"
 TODAY = datetime.now().strftime("%Y-%m-%d")
 
-def load(name):
-    p = DATA_DIR / "csv" / TODAY / f"{name}.csv"
-    if p.exists(): return pd.read_csv(p)
-    # Fallback: scan recent dates
-    from datetime import timedelta
-    base = datetime.strptime(TODAY, "%Y-%m-%d")
-    for i in range(1, 8):
-        d = (base - timedelta(days=i)).strftime("%Y-%m-%d")
-        p2 = DATA_DIR / "csv" / d / f"{name}.csv"
-        if p2.exists(): return pd.read_csv(p2)
-    return pd.DataFrame()
+# 兼容：load_csv 在本文件中仍叫 load
+load = load_csv
 
 def gv(df, kw):
     for c in df.columns:
@@ -41,16 +37,6 @@ def nv(df, kw):
     if not sub.empty: return str(sub.iloc[0][val_col])
     return None
 
-def load_week(name, days=7):
-    from datetime import timedelta
-    base = datetime.strptime(TODAY, "%Y-%m-%d")
-    frames = []
-    for i in range(days):
-        d = (base - timedelta(days=i)).strftime("%Y-%m-%d")
-        p = DATA_DIR / "csv" / d / f"{name}.csv"
-        if p.exists():
-            frames.append(pd.read_csv(p))
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 def week_stats(df, kw):
     """Return (avg_price, wow_change) for a commodity keyword across multi-day data"""
@@ -77,70 +63,6 @@ def week_stats(df, kw):
         chg = f"{float(sub.iloc[0][cc]):+.2f}%" if cc is not None else "—"
     return avg, chg
 
-def fetch_fedwatch():
-    """从oddpool.com API获取FedWatch FOMC降息概率"""
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    base = "https://www.oddpool.com/api/events/history"
-    now = datetime.now()
-    for m_offset in range(0, 2):
-        m = now.month + m_offset
-        y = now.year + (m - 1) // 12
-        m = (m - 1) % 12 + 1
-        for day in [17, 16, 18, 15, 19, 14, 20]:
-            event_id = f"fomc-{y}-{m:02d}-{day:02d}"
-            try:
-                r = requests.get(f"{base}/no_change", params={"event_id": event_id, "hours": 1},
-                                 headers=headers, timeout=10)
-                if r.status_code == 200:
-                    data = r.json()
-                    if data.get("kalshi") or data.get("polymarket"):
-                        hold = cut_25 = None
-                        for venue in ["kalshi", "polymarket"]:
-                            items = data.get(venue, [])
-                            if items:
-                                p = items[-1].get("probabilities", {})
-                                hold_val = p.get("no_change")
-                                if hold_val is not None:
-                                    hold = f"{hold_val * 100:.1f}"
-                                break
-                        r2 = requests.get(f"{base}/cut_25bps", params={"event_id": event_id, "hours": 1},
-                                          headers=headers, timeout=10)
-                        if r2.status_code == 200:
-                            d2 = r2.json()
-                            for venue in ["kalshi", "polymarket"]:
-                                items = d2.get(venue, [])
-                                if items:
-                                    p = items[-1].get("probabilities", {})
-                                    cut_val = p.get("cut_25bps")
-                                    if cut_val is not None:
-                                        cut_25 = f"{cut_val * 100:.1f}"
-                                    break
-                        return {"hold": hold, "cut_25": cut_25}
-            except Exception:
-                continue
-    return None
-
-def yahoo_quote_direct(symbol, retries=3):
-    """Yahoo Finance 直连API — CSV数据过期时的fallback"""
-    import time, random
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-    params = {"range": "5d", "interval": "1d"}
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    for attempt in range(retries):
-        try:
-            r = requests.get(url, params=params, headers=headers, timeout=15)
-            if r.status_code == 200:
-                data = r.json()
-                result = data["chart"]["result"][0]
-                meta = result.get("meta", {})
-                price = meta.get("regularMarketPrice")
-                return price, TODAY
-            elif r.status_code == 429:
-                time.sleep((2 ** attempt) + random.random() * 2)
-        except Exception:
-            time.sleep(2 ** attempt)
-    return None, None
-
 def report():
     yahoo = load("yahoo_futures")
     yahoo_week = load_week("yahoo_futures")
@@ -160,7 +82,7 @@ def report():
     if yahoo_stale:
         print(f"[金属报告] Yahoo CSV数据过期，使用直连API获取最新价格...")
         for sym, name, keyword in [("GC=F", "COMEX黃金期貨", "黃金"), ("SI=F", "COMEX白銀期貨", "白銀")]:
-            price, date = yahoo_quote_direct(sym)
+            price, prev, date = yahoo_quote_direct(sym)
             if price is not None:
                 new_row = pd.DataFrame([{
                     "來源": "Yahoo Finance (直连)", "品種": name,
