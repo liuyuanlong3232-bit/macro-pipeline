@@ -1,14 +1,8 @@
-QQ Bot已关(2026-06-16)。AppID: 1904159904。如需重新启用需重启VPS Hermes gateway。
+QQ Bot已关(6/16)AppID:1904159904。通信：QQ邮箱(452731778)6份/周。Telegram暂不使用(被墙)。VPS纯数据采集无AI。
 §
-通信渠道：QQ邮箱(452731778)发送周报日报(6份/周)，QQ Bot已关(2026-06-16)。Telegram暂不使用(被墙)。VPS纯数据采集，无AI。
+VPS timezone已改为UTC(2026-06-16)。cron时间全部从CST+8换算为UTC(-8h)。双保险：hermes-reports(/etc/cron.d/)+root crontab各一套。改完后必须systemctl restart cron。日常采集UTC 00:00(=CST 08:00)。
 §
-两个技能已部署到VPS：知识扩充技能(knowledge-expansion)和毛主席语录(mao-quotes)。位置：/root/hermes-pipeline/skills/。使用方式：输入关键词→极简框架，深挖指令→定点展开。
-§
-VPS cron(每天): 08:00采集→08:03和风天气→08:04Tushare期货→08:05全球天气→08:10质检→08:30日报。周三23:00 EIA。周五04:00 COT+16:00周报摘要。/etc/cron.d/改完后必须systemctl restart cron。双保险：hermes-reports+root crontab各一套。
-§
-变现方案已调整：知识星球新规无资质不可发布，报告仅供自己学习使用。系统优化方向：提升数据质量、分析深度、学习效率。
-§
-VPS：cron(08:0015步)+数据源(FRED31+Yahoo16+天气全球6产区33K+中国9城+Tushare5+COT+EIA+质检)。日报ABCD四板。周报摘要替代旧6份。和风天气Key=p8g.../Host=pg7d.../Key=f8d7。MCP只装OpenWebSearch(百度免费搜)。旧系统全停(代码保留)。农业项目等稳定后启动。
+VPS状态(6/16)：①OpenAI被Cloudflare WAF拦截(HTTP 421)，非永久封禁——是Bot Management临时评分(js challenge)。Vultr LA机房IP信誉触发，WARP免费版出口IP同样被拦。②WARP已彻底卸载。③时区已改UTC（原Asia/Shanghai），cron已换算。④GPT/Codex桌面端问题：Cloudflare返回JS challenge，桌面端是API客户端无法完成challenge。
 §
 用户偏好：极简回答，不要解释分析过程，直接给答案。"给我答案就行"就是这个风格。数据交叉验证概念已加入data-pipeline技能参考文件。
 §
