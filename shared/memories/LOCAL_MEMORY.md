@@ -21,3 +21,9 @@ MCP已部署：OpenWebSearch(本地+VPS)，免费百度搜索，无需API Key。
 用户成长里程碑(6/16)：从"小白"到独立修复16文件368行安全漏洞(SQL注入/硬编码/裸except)。能直接分配后端开发任务。学习方式：以改代学，不看理论书。
 §
 部署文件位置：deploy/hermes-cron(cron定义), deploy/HERMES_RULES.md(工作纪律), deploy/hermes-cron部署到VPS:/etc/cron.d/hermes-reports。常用路径：.hermes/plans/(计划文档), D:\hermes\pipeline\(代码仓库), shared/(Git同步)
+§
+数据采集风控调度器(Orchestrator)已实现：NORMAL/THROTTLED/BLOCKED三态检测+自动冷却+状态持久化。详见shared/orchestrator.py。所有HTTP请求走safe_request()，每次记录状态。连续3次429→BLOCKED冷却10-30分钟。状态文件meta/orchestrator_state.json。
+§
+Orchestrator观察期(6/16-6/18)：①BLOCKED误触发②mode叠加降速③state.json偏保守。每天中午12:00 UTC自动检查VPS日志。观察3天无异常→可进PROD。
+§
+时区规则：VPS=UTC，本地=UTC+8(CST)。所有cron必须用UTC时间。转换公式：CST-8=UTC。例如08:00 CST=00:00 UTC，20:00 CST=12:00 UTC。
