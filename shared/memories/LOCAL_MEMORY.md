@@ -27,3 +27,5 @@ MCP已部署：OpenWebSearch(本地+VPS)，免费百度搜索，无需API Key。
 Orchestrator观察期(6/16-6/18)：①BLOCKED误触发②mode叠加降速③state.json偏保守。每天中午12:00 UTC自动检查VPS日志。观察3天无异常→可进PROD。
 §
 时区规则：VPS=UTC，本地=UTC+8(CST)。所有cron必须用UTC时间。转换公式：CST-8=UTC。例如08:00 CST=00:00 UTC，20:00 CST=12:00 UTC。
+§
+OpenAI问题排查记录：之前VPS IP(Vultr LA)被Cloudflare WAF拦截(HTTP 421)，后来恢复。现在ChatGPT桌面端又加载不出聊天记录。可能是Bug也可能是IP问题。排查方法：F12看Network有无403/421/429。
