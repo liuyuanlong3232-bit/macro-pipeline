@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """
-贵金属日报生成器 v3 — 全资产作战室
-四板块: 贵金属宏观 + 能源 + 农业天气 + 中国农业
+贵金属日报生成器 v4 — 全资产作战室
+六板块: 贵金属宏观 + 能源 + 农业天气 + 中国农业 + 财经日历 + 实时快讯
 智能分级: 每个板块只看 Core，只报异常
 """
 import sys, sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta
+
+# 金十数据 MCP API
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+try:
+    from jin10_api import get_weekly_calendar, get_latest_flash
+    HAS_JIN10 = True
+except ImportError:
+    HAS_JIN10 = False
 
 # 动态定位项目根目录
 PIPELINE_ROOT = str(Path(__file__).resolve().parent.parent)
@@ -255,6 +263,64 @@ def main():
     L.append("  数据源: Tushare(2000积分) + 和风天气(50K次/月免费)")
     L.append("  不构成投资建议 · 仅供学习参考")
 
+    # ═════════════ E区：财经日历 ═════════════
+    L.append("")
+    L.append("━" * 55)
+    L.append("📅 E区 · 财经日历（本周重要事件）")
+    L.append("")
+    if HAS_JIN10:
+        try:
+            weekly_cal = get_weekly_calendar(stars_min=3)
+            if weekly_cal:
+                for item in weekly_cal[:10]:
+                    t = item.get("pub_time", "")[-5:]  # HH:MM
+                    title = item.get("title", "")
+                    star = item.get("star", 0)
+                    actual = item.get("actual") or "—"
+                    consensus = item.get("consensus") or "—"
+                    affect = item.get("affect_txt") or ""
+                    prev = item.get("previous") or "—"
+                    # 构建一行: 时间 | 事件 ★ | 前值 -> 共识/实际 | 影响
+                    parts = ["  {} ★{} {}".format(t, star, title)]
+                    vals = "前值:{} | 共识:{} | 实际:{}".format(prev, consensus, actual)
+                    if affect:
+                        vals += " | {}".format(affect)
+                    parts.append("    " + vals)
+                    L.append("\n".join(parts))
+                L.append("")
+                L.append("  数据源: 金十数据MCP · 共{}条本周重要事件".format(len(weekly_cal)))
+            else:
+                L.append("  本周暂无重要经济数据")
+        except Exception as e:
+            L.append("  ⚠️ 金十日历获取失败: {}".format(str(e)[:50]))
+    else:
+        L.append("  金十数据未配置")
+
+    # ═════════════ F区：实时快讯 ═════════════
+    L.append("")
+    L.append("━" * 55)
+    L.append("⚡ F区 · 实时快讯（Top 5）")
+    L.append("")
+    if HAS_JIN10:
+        try:
+            flashes = get_latest_flash(5)
+            if flashes:
+                for i, f_item in enumerate(flashes, 1):
+                    ft = f_item.get("time", "")[:16].replace("T", " ")
+                    content_text = f_item.get("content", "")
+                    # 截断过长的快讯
+                    if len(content_text) > 120:
+                        content_text = content_text[:120] + "..."
+                    L.append("  {}. [{}] {}".format(i, ft, content_text))
+                L.append("")
+                L.append("  数据源: 金十数据MCP · 实时快讯")
+            else:
+                L.append("  暂无最新快讯")
+        except Exception as e:
+            L.append("  ⚠️ 金十快讯获取失败: {}".format(str(e)[:50]))
+    else:
+        L.append("  金十数据未配置")
+
     # ═════════════ 预警 ═════════════
     if alerts_list:
         L.append("")
@@ -287,7 +353,7 @@ def main():
         L.append(f"| {block} | {name} | {val} | {dt} |")
 
     L.append("")
-    L.append("  数据: FRED, Yahoo Finance, CFTC, Open-Meteo, EIA, 和风天气")
+    L.append("  数据: FRED, Yahoo Finance, CFTC, Open-Meteo, EIA, 和风天气, 金十数据")
     L.append("  生成: " + NOW.strftime("%Y-%m-%d %H:%M") + " CST · 不构成投资建议")
 
     report = "\n".join(L)
