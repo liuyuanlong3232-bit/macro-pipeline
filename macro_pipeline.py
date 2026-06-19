@@ -80,7 +80,7 @@ if not FRED_API_KEY or len(FRED_API_KEY) != 32:
                 if _line.strip().startswith("FRED_API_KEY="):
                     FRED_API_KEY = _line.strip().split("=", 1)[1]
                     os.environ["FRED_API_KEY"] = FRED_API_KEY
-                    break
+                break
     except Exception:
         pass
 
@@ -620,7 +620,7 @@ def fetch_fedwatch():
                                 hold_val = p.get("no_change")
                                 if hold_val is not None:
                                     hold = f"{hold_val * 100:.1f}"
-                                break
+                            break
                         # cut_25bps
                         r2 = safe_request(orch, "fedwatch", f"{base}/cut_25bps", params={"event_id": event_id, "hours": 1},
                                           headers=headers, timeout=10)
@@ -633,7 +633,7 @@ def fetch_fedwatch():
                                     cut_val = p.get("cut_25bps")
                                     if cut_val is not None:
                                         cut_25 = f"{cut_val * 100:.1f}"
-                                    break
+                                break
                         # hike_25bps
                         r3 = safe_request(orch, "fedwatch", f"{base}/hike_25bps", params={"event_id": event_id, "hours": 1},
                                           headers=headers, timeout=10)
@@ -646,13 +646,13 @@ def fetch_fedwatch():
                                     hike_val = p.get("hike_25bps")
                                     if hike_val is not None:
                                         hike_25 = f"{hike_val * 100:.1f}"
-                                    break
+                                break
                         # 校验概率之和
                         vals = [float(v) for v in [hold, cut_25, hike_25] if v is not None]
                         if vals and sum(vals) > 105:
                             log.warning(f"[FedWatch] 概率之和异常: {sum(vals):.1f}%, 数据丢弃")
                             return None
-                        break  # 找到数据，退出day循环
+                    break  # 找到数据，退出day循环
             except Exception:
                 continue
         if hold is not None:
@@ -839,6 +839,7 @@ def fetch_yahoo_futures():
         "EURUSD=X": "歐元/美元",
         "USDJPY=X": "美元/日元",
         "CNH=X": "美元/離岸人民幣",
+        "DX-Y.NYB": "ICE美元指數",
         # 波動率
         "^VIX": "VIX恐慌指數",
     }
@@ -935,18 +936,34 @@ def fetch_vix():
             txt = zf.read('FinFutYY.txt').decode('utf-8', errors='replace')
             reader = csv.reader(io.StringIO(txt))
             
+            # Find the latest VIX FUTURES entry
+            latest_vix = None
+            latest_date = ''
             for row in reader:
                 if len(row) < 20: continue
-                if 'VIX FUTURES' in row[0].upper() and '260602' in row[1]:
-                    oi = int(row[7].strip())
-                    dealer_l = int(row[8].strip()); dealer_s = int(row[9].strip())
-                    am_l = int(row[11].strip()); am_s = int(row[12].strip())
-                    lf_l = int(row[14].strip()); lf_s = int(row[15].strip())
-                    
-                    results.append({
-                        "來源": "CFTC TFF / Yahoo",
-                        "品種": "VIX",
-                        "报告日期": "2026-06-02",
+                if 'VIX FUTURES' in row[0].upper():
+                    row_date = row[1].strip()
+                    if row_date > latest_date:
+                        latest_date = row_date
+                        latest_vix = row
+            
+            if latest_vix:
+                row = latest_vix
+                # Convert YYMMDD to YYYY-MM-DD
+                year = "20" + latest_date[:2]
+                month = latest_date[2:4]
+                day = latest_date[4:6]
+                report_date = f'{year}-{month}-{day}'
+                
+                oi = int(row[7].strip())
+                dealer_l = int(row[8].strip()); dealer_s = int(row[9].strip())
+                am_l = int(row[11].strip()); am_s = int(row[12].strip())
+                lf_l = int(row[14].strip()); lf_s = int(row[15].strip())
+                
+                results.append({
+                    "來源": "CFTC TFF / Yahoo",
+                    "品種": "VIX",
+                    "报告日期": report_date,
                         "价格": price_data["price"] if price_data else None,
                         "前收盘": price_data["prev_close"] if price_data else None,
                         "未平仓合约": oi,
@@ -955,8 +972,7 @@ def fetch_vix():
                         "杠杆基金多头": lf_l, "杠杆基金空头": lf_s, "杠杆基金净": lf_l - lf_s,
                         "抓取日": TODAY,
                     })
-                    log.info(f"  ✅ VIX: ${price_data['price'] if price_data else '?'} | OI:{oi:,}")
-                    break
+                log.info(f"  ✅ VIX: ${price_data['price'] if price_data else '?'} | OI:{oi:,}")
             if not results:
                 log.warning("VIX 未在ZIP中找到")
     except Exception as e:

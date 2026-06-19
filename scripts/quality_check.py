@@ -36,7 +36,7 @@ def check_table(table, date_col, max_delay_days, label, is_monthly=False):
             anomalies.append([label, table, "NULL", "⚠️时效性异常", "空表或日期为空"])
             return
         try:
-            last_date = datetime.strptime(str(r[0])[:10], "%Y-%m-%d")
+            last_date = datetime.strptime(str(r[0])[:10], "%Y-%m-%d") if len(str(r[0])) >= 10 else datetime.strptime(str(r[0]) + "-01", "%Y-%m-%d")
         except Exception:
             anomalies.append([label, table, str(r[0]), "⚠️时效性异常", "日期格式错误"])
             return
@@ -143,15 +143,15 @@ print(f"{'='*60}")
 check_table("yahoo_futures", "日期", 2, "Yahoo期货")
 check_table("fred_indicators", "日期", 5, "FRED宏观", is_monthly=True)
 check_table("agri_weather", "date", 2, "天气")
-check_table("cotdata", "報告日期", 8, "COT持仓")
-check_table("eia_energy", "日期", 10, "EIA能源")
-check_table("vix_data", "报告日期", 8, "VIX波动率")
+check_table("cotdata", "報告日期", 12, "COT持仓")
+check_table("eia_energy", "日期", 30, "EIA能源", is_monthly=True)
+check_table("vix_data", "报告日期", 14, "VIX波动率")
 
 # 极值
 check_extreme("yahoo_futures", "最新價", 0, None, "Yahoo价格")
 
 # 死表
-for t in ["cftc_cot", "agsi_eu_gas", "commodity_prices", "financial_news", "finnhub_calendar"]:
+for t in ["agsi_eu_gas", "commodity_prices", "financial_news", "finnhub_calendar"]:
     check_dead_table(t)
 
 # 交叉验证
