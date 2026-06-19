@@ -772,6 +772,7 @@ def fetch_cot():
                 log.warning(f"{name} 返回空数据")
         except Exception as e:
             log.error(f"{name} 抓取失败: {e}")
+        time.sleep(1)
     
     df = pd.DataFrame(results)
     save_csv(df, "cotdata")

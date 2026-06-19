@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """VPS记忆推送到GitHub shared/"""
+import os
 import subprocess
 from pathlib import Path
 from datetime import datetime

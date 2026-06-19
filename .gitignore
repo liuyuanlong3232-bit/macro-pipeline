@@ -11,3 +11,11 @@ verify*.py
 create_*.py
 save_*.py
 write_*.py
+.env*
+*.db
+*.db-*
+logs/
+sessions/
+cache/
+lsp/
+bin/
