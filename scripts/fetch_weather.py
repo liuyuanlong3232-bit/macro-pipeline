@@ -98,14 +98,54 @@ def save_region(code, rows):
     print(f"  💾 {code}: {cnt}条写入")
     return cnt
 
+def fetch_forecast_region(code, lat, lon, name):
+    """用 forecast API 补充最近7天+未来7天数据"""
+    today = datetime.now()
+    start = (today - timedelta(days=7)).strftime("%Y-%m-%d")
+    end = (today + timedelta(days=7)).strftime("%Y-%m-%d")
+    url = "https://api.open-meteo.com/v1/forecast"
+    params = {
+        "latitude": lat, "longitude": lon,
+        "daily": "temperature_2m_mean,precipitation_sum",
+        "start_date": start, "end_date": end,
+        "timezone": "Asia/Shanghai",
+    }
+    try:
+        r = requests.get(url, params=params, timeout=30)
+        if r.status_code == 200:
+            data = r.json()["daily"]
+            days = data["time"]
+            temps = data["temperature_2m_mean"]
+            precips = data["precipitation_sum"]
+            conn = sqlite3.connect(str(DB))
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+            cnt = 0
+            for d, t, p in zip(days, temps, precips):
+                if t is not None or p is not None:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO agri_weather (region, date, temp_mean_c, precip_mm, source, fetched_at) VALUES (?, ?, ?, ?, ?, ?)",
+                        (code, d, t, p, "Open-Meteo/forecast (CC-BY 4.0)", now_str))
+                    cnt += 1
+            conn.commit()
+            conn.close()
+            print(f"  forecast {code}: {cnt}天")
+            return cnt
+    except Exception as e:
+        print(f"  forecast {code} FAIL: {e}")
+    return 0
+
 def incremental_update():
-    """每日增量：只拉昨天到今天"""
+    """每日增量：archive + forecast 双API"""
     yesterday = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
     total = 0
     for code, lat, lon, name in REGIONS:
         rows = fetch_region(code, lat, lon, name, start=yesterday)
         total += save_region(code, rows)
-        time.sleep(1)  # 温和间隔，不超过600次/分
+        time.sleep(1)
+    # forecast API 补充近期数据（archive滞后5天）
+    for code, lat, lon, name in REGIONS:
+        total += fetch_forecast_region(code, lat, lon, name)
+        time.sleep(1)
     return total
 
 def full_historical():

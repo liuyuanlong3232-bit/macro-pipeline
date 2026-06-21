@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-宏观日报 v1.1 — 三因子信号系统
+宏观日报 v1.2 — 三因子信号系统 + 农业天气
 新结构:
   1. Raw Data（偏离值）
   2. Event Layer（金十财经日历）
   3. 三因子模型（USD/Liquidity/Demand分数）
   4. 资产模型（Gold/Silver/Tin/Oil信号）
   5. 信号输出（↑↓ + score）
+  5-B. 农业与天气（C区+D区）
   6. 总结（risk-on/off + 主导因子 + 主线资产）
   + 金十快讯(F区)
 """
@@ -85,6 +86,51 @@ def fmt(v, dp=2):
     try: return f"{float(v):,.{dp}f}"
     except Exception: return str(v)
 
+def cn_weather():
+    """获取中国城市天气"""
+    try:
+        conn = sqlite3.connect(DB); cur = conn.cursor()
+        cur.execute("SELECT city, temp, text, humidity, wind_dir, wind_scale FROM cn_weather WHERE date=? AND hour='now' ORDER BY city", (TODAY,))
+        rows = cur.fetchall(); conn.close(); return rows or []
+    except Exception: return []
+
+def agri_weather_detail():
+    """获取全球6产区最近天气详情"""
+    regions = [
+        ("US_IL", "美国IL玉米带"), ("US_IA", "美国IA玉米带"),
+        ("BR_MT", "巴西马托格罗索"), ("BR_PR", "巴西帕拉纳"),
+        ("AR_BA", "阿根廷大豆带"), ("US_KS", "美国堪萨斯小麦"),
+    ]
+    try:
+        conn = sqlite3.connect(DB); cur = conn.cursor()
+        result = []
+        for code, name in regions:
+            rows = cur.execute("""SELECT AVG(temp_mean_c), SUM(precip_mm), COUNT(*) 
+                FROM agri_weather WHERE region=? AND date >= ? AND temp_mean_c IS NOT NULL""",
+                (code, (NOW-timedelta(days=7)).strftime("%Y-%m-%d"))).fetchone()
+            if rows and rows[0] is not None:
+                avg_t, total_p, cnt = rows
+                today_r = cur.execute("""SELECT temp_mean_c, precip_mm FROM agri_weather 
+                    WHERE region=? AND date=? AND temp_mean_c IS NOT NULL""",
+                    (code, TODAY)).fetchone()
+                t_today, p_today = (today_r[0], today_r[1]) if today_r else (None, None)
+                result.append((name, avg_t, total_p, cnt, t_today, p_today))
+            else:
+                result.append((name, None, None, 0, None, None))
+        conn.close()
+        return result
+    except Exception:
+        return []
+
+
+def cn_futures():
+    """获取国内期货数据"""
+    try:
+        conn = sqlite3.connect(DB); cur = conn.cursor()
+        cur.execute("SELECT name, close, change_pct, vol, unit FROM cn_futures ORDER BY name")
+        rows = cur.fetchall(); conn.close(); return rows or []
+    except Exception: return []
+
 # ═══════ 主函数 ═══════
 
 def main():
@@ -102,6 +148,33 @@ def main():
     wti_px, wti_chg, wti_dt = yv("WTI原油")
     brent_px, brent_chg, brent_dt = yv("Brent原油")
     
+    # ── C区：农业+天气 ──
+    corn_px, corn_chg, corn_dt = yv("玉米期貨")
+    soy_px, soy_chg, soy_dt = yv("大豆期貨")
+    wheat_px, wheat_chg, wheat_dt = yv("小麥期貨")
+    soyoil_px, soyoil_chg, soyoil_dt = yv("豆油期貨")
+    soymeal_px, soymeal_chg, soymeal_dt = yv("豆粕期貨")
+    cotton_px, cotton_chg, cotton_dt = yv("棉花期貨")
+    sugar_px, sugar_chg, sugar_dt = yv("糖期貨")
+    corn_cot = cv("玉米"); soy_cot = cv("大豆"); wheat_cot = cv("小麦")
+
+    # ── 天气异常检测 + 产区详情 ──
+    weather_alerts = []
+    for region, name in [("US_IL","美中西部IL"), ("US_IA","美中西部IA"), ("BR_MT","巴西MT"), ("BR_PR","巴西PR"), ("AR_BA","阿根廷"), ("US_KS","美国KS")]:
+        r = db_one('SELECT AVG(precip_mm) FROM agri_weather WHERE region=? AND date >= ? AND precip_mm IS NOT NULL',
+                   (region, (NOW-timedelta(days=30)).strftime("%Y-%m-%d")))
+        if r and r[0]:
+            avg30 = float(r[0])
+            if avg30 < 1.0:
+                weather_alerts.append(f"⚠️ {name}: 30天均降水 {avg30:.1f}mm（偏干）")
+            elif avg30 > 8.0:
+                weather_alerts.append(f"⚠️ {name}: 30天均降水 {avg30:.1f}mm（偏湿）")
+    agri_wx = agri_weather_detail()
+
+    # ── D区：中国农业+天气 ──
+    cn_wx = cn_weather()
+    cn_ft = cn_futures()
+
     # ── 获取三因子信号 ──
     signals = None
     if HAS_SIGNAL:
@@ -222,6 +295,63 @@ def main():
     else:
         L.append("  ⚠️ 三因子模块未加载")
 
+    # ═════════════ ⑤-B 农业与天气 (C区 + D区) ═════════════
+    L.append("")
+    L.append("━" * 55)
+    L.append("🌾 ⑤-B · 农业与天气")
+    L.append("")
+    L.append("━━ C区 · 农业与天气 ━━")
+    L.append("")
+    if corn_px or soy_px or wheat_px:
+        agri_core = []
+        if corn_px: agri_core.append(f"玉米 {fmt(corn_px,2)}¢ ({chg_s(corn_chg)})")
+        if soy_px: agri_core.append(f"大豆 {fmt(soy_px,2)}¢ ({chg_s(soy_chg)})")
+        if wheat_px: agri_core.append(f"小麦 {fmt(wheat_px,2)}¢ ({chg_s(wheat_chg)})")
+        L.append("  " + "  ·  ".join(agri_core))
+        cot_agri = []
+        if corn_cot: cot_agri.append(f"玉米COT:{corn_cot:.0f}")
+        if soy_cot: cot_agri.append(f"大豆COT:{soy_cot:.0f}")
+        if wheat_cot: cot_agri.append(f"小麦COT:{wheat_cot:.0f}")
+        if cot_agri: L.append("  " + " | ".join(cot_agri))
+        if cotton_px: L.append(f"  棉花 {fmt(cotton_px)}¢ ({chg_s(cotton_chg)}) | 糖 {fmt(sugar_px)}¢ ({chg_s(sugar_chg)}) | 豆油 {fmt(soyoil_px)}¢ | 豆粕 ${fmt(soymeal_px)}")
+        if agri_wx:
+            L.append("  ┌──────────────┬──────┬────────┬──────┐")
+            L.append("  │ 产区         │ 均温 │ 7日降水│ 今日 │")
+            L.append("  ├──────────────┼──────┼────────┼──────┤")
+            for name, avg_t, total_p, cnt, t_today, p_today in agri_wx:
+                t_str = f"{avg_t:.1f}°" if avg_t is not None else "—"
+                p_str = f"{total_p:.1f}mm" if total_p is not None else "—"
+                td_str = f"{t_today:.0f}°" if t_today is not None else "—"
+                flag = ""
+                if total_p is not None and total_p < 1.0: flag = " 🔥"
+                elif total_p is not None and total_p > 15.0: flag = " 🌊"
+                L.append(f"  │ {name:<12} │{t_str:>5}│{p_str:>7}{flag}│{td_str:>5}│")
+            L.append("  └──────────────┴──────┴────────┴──────┘")
+        if weather_alerts:
+            L.append("  ⚠️ 异常预警:")
+            for wa in weather_alerts: L.append("    " + wa)
+    else:
+        L.append("  板块正常，无异常波动")
+    L.append("")
+    L.append("━━ D区 · 中国农业 ━━")
+    L.append("")
+    if cn_ft:
+        L.append("  国内期货:")
+        for row in cn_ft:
+            name, close, chg, vol, unit = row
+            arrow = "🔺" if (chg or 0) > 0 else "🔻" if (chg or 0) < 0 else "➡️"
+            chg_str = "{:+.1f}%".format(chg) if chg else "—"
+            L.append("  {} ¥{:.0f}{} {} {}手".format(name, close, unit, arrow+chg_str, int(vol or 0)))
+        L.append("")
+    if cn_wx:
+        L.append("  城市天气:")
+        for row in cn_wx:
+            city, temp, text, hum, wdir, wscale = row
+            tag = " 🔥" if (temp or 0) > 35 else " ❄️" if (temp or 0) < 0 else ""
+            L.append("  {} {}°C {} 湿度{}%{}{}".format(city, temp, text, hum, tag, ""))
+        L.append("")
+    L.append("  数据源: Tushare(2000积分) + 和风天气(50K次/月免费)")
+
     # ═════════════ ⑥ 总结 ═════════════
     L.append("")
     L.append("━" * 55)
@@ -300,8 +430,8 @@ def main():
         L.append(f"| {name} | {val} | {dt} |")
 
     L.append("")
-    L.append("  数据: FRED, Yahoo, CFTC, Akshare, EIA, 金十数据")
-    L.append("  模型: 三因子 USD/Liquidity/Demand → Gold/Silver/Tin/Oil")
+    L.append("  数据: FRED, Yahoo, CFTC, Open-Meteo, EIA, 金十数据, Tushare, 和风天气")
+    L.append("  模型: 三因子 USD/Liquidity/Demand → Gold/Silver/Tin/Oil + 农业天气")
     L.append("  生成: " + NOW.strftime("%Y-%m-%d %H:%M") + " CST · 不构成投资建议")
 
     report = "\n".join(L)
