@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """
-贵金属日报生成器 v4 — 全资产作战室
-六板块: 贵金属宏观 + 能源 + 农业天气 + 中国农业 + 财经日历 + 实时快讯
-智能分级: 每个板块只看 Core，只报异常
+宏观日报 v1.1 — 三因子信号系统
+新结构:
+  1. Raw Data（偏离值）
+  2. Event Layer（金十财经日历）
+  3. 三因子模型（USD/Liquidity/Demand分数）
+  4. 资产模型（Gold/Silver/Tin/Oil信号）
+  5. 信号输出（↑↓ + score）
+  6. 总结（risk-on/off + 主导因子 + 主线资产）
+  + 金十快讯(F区)
 """
 import sys, sqlite3
+import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
 
@@ -20,6 +27,14 @@ except ImportError:
 PIPELINE_ROOT = str(Path(__file__).resolve().parent.parent)
 sys.path.insert(0, PIPELINE_ROOT)
 
+# 导入三因子信号模块
+try:
+    from macro_signal import calc_all_signals
+    HAS_SIGNAL = True
+except ImportError:
+    HAS_SIGNAL = False
+    print("⚠️ macro_signal 模块未找到，三因子功能禁用")
+
 NOW = datetime.now()
 TODAY = NOW.strftime("%Y-%m-%d")
 DB = str(Path.home() / "hermes-macro-data" / "hermes.db")
@@ -28,8 +43,7 @@ DB = str(Path.home() / "hermes-macro-data" / "hermes.db")
 def db_one(sql, params=None):
     try:
         conn = sqlite3.connect(DB); cur = conn.cursor()
-        cur.execute(sql, params or ())
-        r = cur.fetchone(); conn.close(); return r
+        cur.execute(sql, params or ()); r = cur.fetchone(); conn.close(); return r
     except Exception: return None
 
 def gv(series_id):
@@ -45,6 +59,19 @@ def cv(kw):
     r = db_one('SELECT "COT Index(26W)" FROM cotdata WHERE "品種" LIKE ? LIMIT 1', (f"%{kw}%",))
     return float(r[0]) if r and r[0] else None
 
+def tin_v():
+    """获取伦锡数据 - 从CSV文件读取"""
+    try:
+        csv_dir = Path.home() / "hermes-macro-data" / "csv" / datetime.now().strftime("%Y-%m-%d")
+        csv_path = csv_dir / "akshare_tin.csv"
+        if csv_path.exists():
+            df = pd.read_csv(csv_path)
+            if not df.empty and '最新价' in df.columns:
+                return (float(df['最新价'].iloc[0]), float(df['涨跌幅'].iloc[0]) if '涨跌幅' in df.columns else 0)
+    except Exception:
+        pass
+    return (None, 0)
+
 def chg_s(v, threshold=2.0):
     try:
         pct = float(v)
@@ -58,108 +85,34 @@ def fmt(v, dp=2):
     try: return f"{float(v):,.{dp}f}"
     except Exception: return str(v)
 
-def cn_weather():
-    try:
-        conn = sqlite3.connect(DB); cur = conn.cursor()
-        cur.execute("SELECT city, temp, text, humidity, wind_dir, wind_scale FROM cn_weather WHERE date=? AND hour='now' ORDER BY city", (TODAY,))
-        rows = cur.fetchall(); conn.close(); return rows or []
-    except Exception: return []
-
-def cn_futures():
-    try:
-        conn = sqlite3.connect(DB); cur = conn.cursor()
-        cur.execute("SELECT name, close, change_pct, vol, unit FROM cn_futures ORDER BY name")
-        rows = cur.fetchall(); conn.close(); return rows or []
-    except Exception: return []
-
 # ═══════ 主函数 ═══════
 
 def main():
-    """主函数：拉取数据、组装报告、发送邮件"""
-    # ── A区：贵金属+宏观 ──
+    """主函数：拉取数据、组装报告"""
+    # ── 基础数据 ──
     dxy_px, dxy_chg, dxy_dt = yv("ICE美元")
-    if dxy_px is None:
-        r = gv("DTWEXBGS"); dxy_px, dxy_chg, dxy_dt = (float(r[0]) if r[0]!="—" else 0), "—", r[1]
     gold_px, gold_chg, gold_dt = yv("黃金期貨")
     silver_px, silver_chg, silver_dt = yv("白銀期貨")
+    tin_px, tin_chg = tin_v()
     vix_px, vix_chg, vix_dt = yv("VIX恐慌")
     dgs10_v, dgs10_d = gv("DGS10"); tips_v, tips_d = gv("DFII10")
     gold_cot = cv("黄金"); silver_cot = cv("白银")
     ff_v, ff_d = gv("FEDFUNDS"); cpi_v, cpi_d = gv("CPIAUCSL")
-    pce_v, pce_d = gv("PCEPILFE"); unemp_v, unemp_d = gv("UNRATE")
-    m2_v, m2_d = gv("M2SL"); t5y_v, t5y_d = gv("T5YIFR")
-    t10yie_v, t10y_d = gv("T10YIE")
-
-    # ── B区：能源 ──
+    unemp_v, unemp_d = gv("UNRATE")
     wti_px, wti_chg, wti_dt = yv("WTI原油")
     brent_px, brent_chg, brent_dt = yv("Brent原油")
-    ng_px, ng_chg, ng_dt = yv("天然氣")
-    eia_crude_date = db_one('SELECT MAX("日期") FROM eia_energy WHERE "類別"="原油庫存"')
-    eia_last = str(eia_crude_date[0]) if eia_crude_date and eia_crude_date[0] else "?"
-
-    # ── C区：农业+天气 ──
-    corn_px, corn_chg, corn_dt = yv("玉米期貨")
-    soy_px, soy_chg, soy_dt = yv("大豆期貨")
-    wheat_px, wheat_chg, wheat_dt = yv("小麥期貨")
-    soyoil_px, soyoil_chg, soyoil_dt = yv("豆油期貨")
-    soymeal_px, soymeal_chg, soymeal_dt = yv("豆粕期貨")
-    cotton_px, cotton_chg, cotton_dt = yv("棉花期貨")
-    sugar_px, sugar_chg, sugar_dt = yv("糖期貨")
-    corn_cot = cv("玉米"); soy_cot = cv("大豆"); wheat_cot = cv("小麦")
-
-    # ── 天气异常检测 ──
-    weather_alerts = []
-    for region, name in [("US_IL","美中西部IL"), ("US_IA","美中西部IA"), ("BR_MT","巴西MT"), ("AR_BA","阿根廷")]:
-        r = db_one('SELECT AVG(precip_mm) FROM agri_weather WHERE region=? AND date >= ?',
-                   (region, (NOW-timedelta(days=30)).strftime("%Y-%m-%d")))
-        if r and r[0]:
-            avg30 = float(r[0])
-            if avg30 < 1.0:
-                weather_alerts.append(f"⚠️ {name}: 30天均降水 {avg30:.1f}mm（异常偏干）")
-            elif avg30 > 8.0:
-                weather_alerts.append(f"⚠️ {name}: 30天均降水 {avg30:.1f}mm（异常偏湿）")
-
-    # ── D区：中国农业+天气 ──
-    cn_wx = cn_weather()
-    cn_ft = cn_futures()
-    cn_agri_available = False
-    try:
-        r = db_one('SELECT COUNT(*) FROM yahoo_futures WHERE "品種" LIKE "%豬%"')
-        if r and r[0] > 0: cn_agri_available = True
-    except Exception: pass
-
-    # ═══════ 异常收集 ═══════
-    anomalies = []
-    for name, px, chg in [("黄金", gold_px, gold_chg), ("白银", silver_px, silver_chg),
-                            ("WTI", wti_px, wti_chg), ("天然气", ng_px, ng_chg),
-                            ("玉米", corn_px, corn_chg), ("大豆", soy_px, soy_chg),
-                            ("小麦", wheat_px, wheat_chg)]:
+    
+    # ── 获取三因子信号 ──
+    signals = None
+    if HAS_SIGNAL:
         try:
-            if abs(float(chg)) > 2:
-                anomalies.append((name, chg))
-        except Exception: pass
-    if gold_cot and gold_cot >= 90:
-        anomalies.append(("黄金COT", "极度拥挤"))
-    alerts_list = []
-    if vix_px and vix_px > 25: alerts_list.append(f"VIX={vix_px:.1f}>25")
-    if gold_cot and gold_cot >= 90: alerts_list.append(f"黄金COT={gold_cot:.0f}>90极度拥挤")
-    if gold_cot and gold_cot <= 10: alerts_list.append(f"黄金COT={gold_cot:.0f}<10极度悲观")
-    try:
-        t = float(tips_v) if tips_v!="—" else 0
-        if t < -0.5: alerts_list.append(f"TIPS={tips_v}%负利率")
-        if t > 3: alerts_list.append(f"TIPS={tips_v}%高利率压制")
-    except Exception: pass
-
-    # ═══════ FedWatch ═══════
-    fed_hold = "—"
-    try:
-        import requests; r = requests.get("https://oddpool.com/api/fedwatch", timeout=8)
-        if r.status_code == 200: fed_hold = str(r.json().get("hold", "?"))+"%"
-    except Exception: pass
+            signals = calc_all_signals()
+        except Exception as e:
+            print(f"⚠️ 三因子计算失败: {e}")
 
     # ═══════ 组装报告 ═══════
     L = []
-    L.append("📅 全资产日报 | " + TODAY)
+    L.append("📅 宏观日报 v1.1 | " + TODAY)
     L.append("━" * 55)
     L.append("")
 
@@ -168,133 +121,121 @@ def main():
     for name, kw in [("DXY","ICE美元"), ("黄金","黃金"), ("白银","白銀"), ("WTI","WTI原油"), ("VIX","VIX")]:
         if not db_one('SELECT 1 FROM yahoo_futures WHERE "品種" LIKE ? LIMIT 1', (f"%{kw}%",)):
             missing.append(name)
+    if tin_px is None:
+        missing.append("伦锡")
     if missing:
         L.append("⚠️ 缺失: " + ", ".join(missing))
     else:
         L.append("✅ 数据完整 · 全资产就绪")
 
-    # ═════════════ A区 ═════════════
+    # ═════════════ ① Raw Data（偏离值）═════════════
     L.append("")
     L.append("━" * 55)
-    L.append("🔴 A区 · 贵金属与宏观")
+    L.append("📊 ① Raw Data（偏离值）")
     L.append("")
-    core_items = []
-    if dxy_px: core_items.append(f"DXY {fmt(dxy_px)} ({chg_s(dxy_chg)})")
-    if gold_px: core_items.append(f"黄金 ${fmt(gold_px,0)} ({chg_s(gold_chg)})")
-    if silver_px: core_items.append(f"白银 ${fmt(silver_px,2)} ({chg_s(silver_chg)})")
-    if vix_px:
-        vtag = " ⚡高" if vix_px>25 else ""
-        core_items.append(f"VIX {fmt(vix_px,2)}{vtag}")
-    core_items.append(f"10Y {dgs10_v}% | TIPS {tips_v}%")
-    L.append("  " + "  ·  ".join(core_items))
-    L.append("")
-    # COT
-    if gold_cot:
-        gs = "极度看多" if gold_cot>=90 else "看多" if gold_cot>=70 else "中性" if gold_cot>=30 else "看空" if gold_cot>=10 else "极度看空"
-        L.append(f"  COT黄金: {gold_cot:.0f} ({gs}) | COT白银: {silver_cot:.0f}" if silver_cot else f"  COT黄金: {gold_cot:.0f} ({gs})")
-    L.append(f"  联邦基金: {ff_v}% | CPI: {cpi_v} | 失业: {unemp_v}% | FOMC维持: {fed_hold}")
+    L.append("  DXY: {} ({}) | 10Y: {}% | TIPS: {}%".format(
+        fmt(dxy_px), chg_s(dxy_chg), dgs10_v, tips_v))
+    L.append("  黄金: ${} ({}) | 白银: ${} ({})".format(
+        fmt(gold_px,0), chg_s(gold_chg), fmt(silver_px,2), chg_s(silver_chg)))
+    L.append("  伦锡: {} ({:+.2f}%) | WTI: ${} ({}) | Brent: ${} ({})".format(
+        fmt(tin_px,0), tin_chg, fmt(wti_px), chg_s(wti_chg), fmt(brent_px), chg_s(brent_chg)))
+    L.append("  VIX: {} ({})".format(fmt(vix_px,2), chg_s(vix_chg)))
 
-    # ═════════════ B区 ═════════════
+    # ═════════════ ② Event Layer（金十财经日历）═════════════
     L.append("")
     L.append("━" * 55)
-    L.append("🛢️ B区 · 能源")
-    L.append("")
-    if wti_px or brent_px or ng_px:
-        energy_core = []
-        if wti_px: energy_core.append(f"WTI ${fmt(wti_px)} ({chg_s(wti_chg)})")
-        if brent_px: energy_core.append(f"Brent ${fmt(brent_px)} ({chg_s(brent_chg)})")
-        if ng_px: energy_core.append(f"天然气 ${fmt(ng_px,3)} ({chg_s(ng_chg)})")
-        L.append("  " + "  ·  ".join(energy_core))
-        L.append(f"  EIA库存: {eia_last}")
-        energy_anom = []
-        try:
-            if abs(float(wti_chg)) > 3: energy_anom.append(f"WTI波动{float(wti_chg):+.1f}%")
-            if abs(float(ng_chg)) > 5: energy_anom.append(f"天然气暴动{float(ng_chg):+.1f}%")
-        except Exception: pass
-        if energy_anom: L.append("  ⚠️ " + " · ".join(energy_anom))
-    else:
-        L.append("  板块正常，无异常波动")
-
-    # ═════════════ C区 ═════════════
-    L.append("")
-    L.append("━" * 55)
-    L.append("🌾 C区 · 农业与天气")
-    L.append("")
-    if corn_px or soy_px or wheat_px:
-        agri_core = []
-        if corn_px: agri_core.append(f"玉米 {fmt(corn_px,2)}¢ ({chg_s(corn_chg)})")
-        if soy_px: agri_core.append(f"大豆 {fmt(soy_px,2)}¢ ({chg_s(soy_chg)})")
-        if wheat_px: agri_core.append(f"小麦 {fmt(wheat_px,2)}¢ ({chg_s(wheat_chg)})")
-        L.append("  " + "  ·  ".join(agri_core))
-        cot_agri = []
-        if corn_cot: cot_agri.append(f"玉米COT:{corn_cot:.0f}")
-        if soy_cot: cot_agri.append(f"大豆COT:{soy_cot:.0f}")
-        if wheat_cot: cot_agri.append(f"小麦COT:{wheat_cot:.0f}")
-        if cot_agri: L.append("  " + " | ".join(cot_agri))
-        if cotton_px: L.append(f"  棉花 {fmt(cotton_px)}¢ ({chg_s(cotton_chg)}) | 糖 {fmt(sugar_px)}¢ ({chg_s(sugar_chg)}) | 豆油 {fmt(soyoil_px)}¢ | 豆粕 ${fmt(soymeal_px)}")
-        if weather_alerts:
-            L.append("  ☀️ 天气预警:")
-            for wa in weather_alerts: L.append("    " + wa)
-        else:
-            L.append("  ☀️ 产区天气正常")
-    else:
-        L.append("  板块正常，无异常波动")
-
-    # ═════════════ D区 ═════════════
-    L.append("")
-    L.append("━" * 55)
-    L.append("🐷 D区 · 中国农业")
-    L.append("")
-    if cn_ft:
-        L.append("  国内期货:")
-        for row in cn_ft:
-            name, close, chg, vol, unit = row
-            arrow = "🔺" if (chg or 0) > 0 else "🔻" if (chg or 0) < 0 else "➡️"
-            chg_str = "{:+.1f}%".format(chg) if chg else "—"
-            L.append("  {} ¥{:.0f}{} {} {}手".format(name, close, unit, arrow+chg_str, int(vol or 0)))
-        L.append("")
-    if cn_wx:
-        L.append("  城市天气:")
-        for row in cn_wx:
-            city, temp, text, hum, wdir, wscale = row
-            tag = " 🔥" if (temp or 0) > 35 else " ❄️" if (temp or 0) < 0 else ""
-            L.append("  {} {}°C {} 湿度{}%{}{}".format(city, temp, text, hum, tag, ""))
-        L.append("")
-    L.append("  数据源: Tushare(2000积分) + 和风天气(50K次/月免费)")
-    L.append("  不构成投资建议 · 仅供学习参考")
-
-    # ═════════════ E区：财经日历 ═════════════
-    L.append("")
-    L.append("━" * 55)
-    L.append("📅 E区 · 财经日历（本周重要事件）")
+    L.append("📅 ② Event Layer（金十财经日历）")
     L.append("")
     if HAS_JIN10:
         try:
             weekly_cal = get_weekly_calendar(stars_min=3)
             if weekly_cal:
-                for item in weekly_cal[:10]:
-                    t = item.get("pub_time", "")[-5:]  # HH:MM
+                for item in weekly_cal[:8]:
+                    t = item.get("pub_time", "")[-5:]
                     title = item.get("title", "")
                     star = item.get("star", 0)
                     actual = item.get("actual") or "—"
                     consensus = item.get("consensus") or "—"
-                    affect = item.get("affect_txt") or ""
                     prev = item.get("previous") or "—"
-                    # 构建一行: 时间 | 事件 ★ | 前值 -> 共识/实际 | 影响
-                    parts = ["  {} ★{} {}".format(t, star, title)]
-                    vals = "前值:{} | 共识:{} | 实际:{}".format(prev, consensus, actual)
-                    if affect:
-                        vals += " | {}".format(affect)
-                    parts.append("    " + vals)
-                    L.append("\n".join(parts))
+                    L.append("  {} ★{} {}".format(t, star, title))
+                    L.append("    前值:{} | 共识:{} | 实际:{}".format(prev, consensus, actual))
                 L.append("")
-                L.append("  数据源: 金十数据MCP · 共{}条本周重要事件".format(len(weekly_cal)))
+                L.append("  数据源: 金十数据MCP · 本周{}条重要事件".format(len(weekly_cal)))
             else:
                 L.append("  本周暂无重要经济数据")
         except Exception as e:
             L.append("  ⚠️ 金十日历获取失败: {}".format(str(e)[:50]))
     else:
         L.append("  金十数据未配置")
+
+    # ═════════════ ③ 三因子模型 ═════════════
+    L.append("")
+    L.append("━" * 55)
+    L.append("🧮 ③ 三因子模型（USD/Liquidity/Demand分数）")
+    L.append("")
+    if signals:
+        factors = signals["factors"]
+        L.append("  USD:       {:+.2f}  ({})".format(
+            factors["USD"], "美元强势" if factors["USD"] > 0 else "美元弱势"))
+        L.append("  Liquidity: {:+.2f}  ({})".format(
+            factors["Liquidity"], "流动性充裕" if factors["Liquidity"] > 0 else "流动性紧张"))
+        L.append("  Demand:    {:+.2f}  ({})".format(
+            factors["Demand"], "中国需求强" if factors["Demand"] > 0 else "中国需求弱"))
+        L.append("")
+        L.append("  联邦基金: {}% | CPI: {} | 失业率: {}%".format(ff_v, cpi_v, unemp_v))
+    else:
+        L.append("  ⚠️ 三因子模块未加载")
+
+    # ═════════════ ④ 资产模型 ═════════════
+    L.append("")
+    L.append("━" * 55)
+    L.append("📈 ④ 资产模型（Gold/Silver/Tin/Oil信号）")
+    L.append("")
+    if signals:
+        assets = signals["assets"]
+        for name, info in assets.items():
+            icon = "🥇" if name == "Gold" else "🥈" if name == "Silver" else "🔩" if name == "Tin" else "🛢️"
+            L.append("  {} {}: {} {:+.2f} ({})".format(
+                icon, name, info["dir"], info["score"], info["str"]))
+        L.append("")
+        L.append("  COT黄金: {} ({}) | COT白银: {}".format(
+            gold_cot or "—",
+            "极度看多" if gold_cot and gold_cot >= 90 else "看多" if gold_cot and gold_cot >= 70 else "中性" if gold_cot and gold_cot >= 30 else "—",
+            silver_cot or "—"))
+    else:
+        L.append("  ⚠️ 三因子模块未加载")
+
+    # ═════════════ ⑤ 信号输出 ═════════════
+    L.append("")
+    L.append("━" * 55)
+    L.append("🎯 ⑤ 信号输出（↑↓ + score）")
+    L.append("")
+    if signals:
+        assets = signals["assets"]
+        L.append("  ┌─────────┬──────┬───────┬────────┐")
+        L.append("  │ 资产    │ 信号 │ 分数  │ 强度   │")
+        L.append("  ├─────────┼──────┼───────┼────────┤")
+        for name, info in assets.items():
+            L.append("  │ {:<7} │  {}  │ {:+.2f} │ {:<6} │".format(
+                name, info["dir"], info["score"], info["str"]))
+        L.append("  └─────────┴──────┴───────┴────────┘")
+    else:
+        L.append("  ⚠️ 三因子模块未加载")
+
+    # ═════════════ ⑥ 总结 ═════════════
+    L.append("")
+    L.append("━" * 55)
+    L.append("📝 ⑥ 总结（risk-on/off + 主导因子 + 主线资产）")
+    L.append("")
+    if signals:
+        summary = signals["summary"]
+        regime = summary["regime"]
+        regime_icon = "🟢" if regime == "risk-on" else "🔴" if regime == "risk-off" else "🟡"
+        L.append("  市场状态: {} {}".format(regime_icon, regime.upper()))
+        L.append("  主导因子: {}".format(summary["dominant"]))
+        L.append("  主线资产: {}".format(summary["leader"]))
+    else:
+        L.append("  ⚠️ 三因子模块未加载")
 
     # ═════════════ F区：实时快讯 ═════════════
     L.append("")
@@ -308,7 +249,6 @@ def main():
                 for i, f_item in enumerate(flashes, 1):
                     ft = f_item.get("time", "")[:16].replace("T", " ")
                     content_text = f_item.get("content", "")
-                    # 截断过长的快讯
                     if len(content_text) > 120:
                         content_text = content_text[:120] + "..."
                     L.append("  {}. [{}] {}".format(i, ft, content_text))
@@ -322,6 +262,16 @@ def main():
         L.append("  金十数据未配置")
 
     # ═════════════ 预警 ═════════════
+    alerts_list = []
+    if vix_px and vix_px > 25: alerts_list.append(f"VIX={vix_px:.1f}>25")
+    if gold_cot and gold_cot >= 90: alerts_list.append(f"黄金COT={gold_cot:.0f}>90极度拥挤")
+    if gold_cot and gold_cot <= 10: alerts_list.append(f"黄金COT={gold_cot:.0f}<10极度悲观")
+    try:
+        t = float(tips_v) if tips_v!="—" else 0
+        if t < -0.5: alerts_list.append(f"TIPS={tips_v}%负利率")
+        if t > 3: alerts_list.append(f"TIPS={tips_v}%高利率压制")
+    except Exception: pass
+
     if alerts_list:
         L.append("")
         L.append("━" * 55)
@@ -333,50 +283,52 @@ def main():
     L.append("━" * 55)
     L.append("📋 数据附表")
     L.append("")
-    L.append("| 板块 | 指标 | 数值 | 日期 |")
-    L.append("|------|------|------|------|")
+    L.append("| 指标 | 数值 | 日期 |" )
+    L.append("|------|------|------|")
     rows = [
-        ("A区", "ICE DXY", fmt(dxy_px), dxy_dt[:10] if dxy_dt else TODAY),
-        ("A区", "黄金", f"${fmt(gold_px,0)}", gold_dt[:10] if gold_dt else TODAY),
-        ("A区", "白银", f"${fmt(silver_px,2)}", silver_dt[:10] if silver_dt else TODAY),
-        ("A区", "VIX", fmt(vix_px,1), vix_dt[:10] if vix_dt else TODAY),
-        ("A区", "10Y美债", f"{dgs10_v}%", dgs10_d[:10]),
-        ("A区", "TIPS实际利率", f"{tips_v}%", tips_d[:10]),
-        ("B区", "WTI原油", f"${fmt(wti_px)}", wti_dt[:10] if wti_dt else TODAY),
-        ("B区", "Brent原油", f"${fmt(brent_px)}", brent_dt[:10] if brent_dt else TODAY),
-        ("B区", "天然气", f"${fmt(ng_px,3)}", ng_dt[:10] if ng_dt else TODAY),
-        ("C区", "玉米", f"{fmt(corn_px)}¢", corn_dt[:10] if corn_dt else TODAY),
-        ("C区", "大豆", f"{fmt(soy_px)}¢", soy_dt[:10] if soy_dt else TODAY),
-        ("C区", "小麦", f"{fmt(wheat_px)}¢", wheat_dt[:10] if wheat_dt else TODAY),
+        ("ICE DXY", fmt(dxy_px), dxy_dt[:10] if dxy_dt else TODAY),
+        ("黄金", f"${fmt(gold_px,0)}", gold_dt[:10] if gold_dt else TODAY),
+        ("白银", f"${fmt(silver_px,2)}", silver_dt[:10] if silver_dt else TODAY),
+        ("伦锡", f"{fmt(tin_px,0)}", TODAY),
+        ("WTI原油", f"${fmt(wti_px)}", wti_dt[:10] if wti_dt else TODAY),
+        ("Brent原油", f"${fmt(brent_px)}", brent_dt[:10] if brent_dt else TODAY),
+        ("VIX", fmt(vix_px,1), vix_dt[:10] if vix_dt else TODAY),
+        ("10Y美债", f"{dgs10_v}%", dgs10_d[:10]),
+        ("TIPS实际利率", f"{tips_v}%", tips_d[:10]),
     ]
-    for block, name, val, dt in rows:
-        L.append(f"| {block} | {name} | {val} | {dt} |")
+    for name, val, dt in rows:
+        L.append(f"| {name} | {val} | {dt} |")
 
     L.append("")
-    L.append("  数据: FRED, Yahoo Finance, CFTC, Open-Meteo, EIA, 和风天气, 金十数据")
+    L.append("  数据: FRED, Yahoo, CFTC, Akshare, EIA, 金十数据")
+    L.append("  模型: 三因子 USD/Liquidity/Demand → Gold/Silver/Tin/Oil")
     L.append("  生成: " + NOW.strftime("%Y-%m-%d %H:%M") + " CST · 不构成投资建议")
 
     report = "\n".join(L)
 
-    # ═══════ 输出+发送 ═══════
+    # ═══════ 输出 ═══════
     outdir = Path.home() / "hermes-macro-data" / "reports"
     outdir.mkdir(parents=True, exist_ok=True)
     outpath = outdir / ("daily_" + TODAY + ".md")
     outpath.write_text(report, encoding="utf-8")
     print("日报: " + str(outpath))
 
-    from send_email import send_report
-    send_report(str(outpath), "macro")
-
     # 存档异常信号供周报使用
     sigdir = Path.home() / "hermes-macro-data" / "signals"
     sigdir.mkdir(parents=True, exist_ok=True)
     sigfile = sigdir / (TODAY + ".txt")
     sig_lines = [f"date={TODAY}"]
-    if anomalies: sig_lines.append("anomalies="+";".join(f"{n}:{v}" for n,v in anomalies))
-    if alerts_list: sig_lines.append("alerts="+";".join(alerts_list))
-    if weather_alerts: sig_lines.append("weather="+";".join(weather_alerts))
-    sig_lines.append(f"gold={gold_px}|{gold_chg}|silver={silver_px}|{silver_chg}|wti={wti_px}|{wti_chg}|corn={corn_px}|{corn_chg}|soy={soy_px}|{soy_chg}|wheat={wheat_px}|{wheat_chg}")
+    if signals:
+        factors = signals["factors"]
+        assets = signals["assets"]
+        summary = signals["summary"]
+        sig_lines.append("factors=USD:{:.2f};Liquidity:{:.2f};Demand:{:.2f}".format(
+            factors["USD"], factors["Liquidity"], factors["Demand"]))
+        sig_lines.append("assets=" + ";".join(f"{k}:{v['dir']}:{v['score']:+.2f}" for k,v in assets.items()))
+        sig_lines.append("regime={};dominant={};leader={}".format(
+            summary["regime"], summary["dominant"], summary["leader"]))
+    if alerts_list: sig_lines.append("alerts=" + ";".join(alerts_list))
+    sig_lines.append(f"gold={gold_px}|{gold_chg}|silver={silver_px}|{silver_chg}|tin={tin_px}|{tin_chg}|wti={wti_px}|{wti_chg}")
     sigfile.write_text("\n".join(sig_lines), encoding="utf-8")
     print("信号存档: " + str(sigfile))
 

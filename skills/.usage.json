@@ -1,0 +1,93 @@
+{
+  "financial-data-scraping": {
+    "archived_at": null,
+    "created_at": "2026-06-14T06:02:57.398537+00:00",
+    "created_by": "agent",
+    "last_patched_at": "2026-06-14T06:50:40.003385+00:00",
+    "last_used_at": "2026-06-14T06:46:01.643742+00:00",
+    "last_viewed_at": "2026-06-14T06:46:01.638588+00:00",
+    "patch_count": 6,
+    "pinned": false,
+    "state": "active",
+    "use_count": 1,
+    "view_count": 1
+  },
+  "hermes-monitoring": {
+    "archived_at": null,
+    "created_at": "2026-06-15T04:09:47.420048+00:00",
+    "created_by": "agent",
+    "last_patched_at": null,
+    "last_used_at": null,
+    "last_viewed_at": null,
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 0,
+    "view_count": 0
+  },
+  "himalaya": {
+    "archived_at": null,
+    "created_at": "2026-06-14T08:27:07.354562+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_used_at": "2026-06-14T08:27:07.356471+00:00",
+    "last_viewed_at": "2026-06-14T08:27:07.354598+00:00",
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 1,
+    "view_count": 1
+  },
+  "knowledge-expansion": {
+    "archived_at": null,
+    "created_at": "2026-06-14T07:48:48.404728+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_used_at": "2026-06-14T07:48:48.406238+00:00",
+    "last_viewed_at": "2026-06-14T07:48:48.404756+00:00",
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 1,
+    "view_count": 1
+  },
+  "macro-report-pipeline": {
+    "archived_at": null,
+    "created_at": "2026-06-14T05:08:50.831561+00:00",
+    "created_by": "agent",
+    "last_patched_at": "2026-06-15T01:46:53.094450+00:00",
+    "last_used_at": "2026-06-15T01:46:09.651714+00:00",
+    "last_viewed_at": "2026-06-15T01:46:09.650041+00:00",
+    "patch_count": 41,
+    "pinned": false,
+    "state": "active",
+    "use_count": 28,
+    "view_count": 28
+  },
+  "mao-quotes": {
+    "archived_at": null,
+    "created_at": "2026-06-14T07:50:09.505435+00:00",
+    "created_by": null,
+    "last_patched_at": null,
+    "last_used_at": "2026-06-14T07:50:09.507038+00:00",
+    "last_viewed_at": "2026-06-14T07:50:09.505464+00:00",
+    "patch_count": 0,
+    "pinned": false,
+    "state": "active",
+    "use_count": 1,
+    "view_count": 1
+  },
+  "report-pipeline-auditing": {
+    "archived_at": null,
+    "created_at": "2026-06-14T05:17:08.456987+00:00",
+    "created_by": "agent",
+    "last_patched_at": "2026-06-14T06:49:25.534829+00:00",
+    "last_used_at": "2026-06-14T06:46:01.662919+00:00",
+    "last_viewed_at": "2026-06-14T06:46:01.661461+00:00",
+    "patch_count": 7,
+    "pinned": false,
+    "state": "active",
+    "use_count": 4,
+    "view_count": 4
+  }
+}

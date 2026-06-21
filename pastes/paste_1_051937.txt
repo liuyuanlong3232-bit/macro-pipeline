@@ -1,0 +1,6 @@
+ FedWatch (oddpool.com): 返回概率之和297%，被校验拦截
+      → 需排查oddpool页面结构变化或更换数据源
+    - CPI同比精度: FRED仅回溯5个月，用推算值(~4.17%)
+      → 需扩展fred_indicators采集历史至12个月以上
+    - 5Y美债收益率: FRED无DGS5系列
+    - 美债期货COT: cotdata无该品种

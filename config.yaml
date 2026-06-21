@@ -1,0 +1,21 @@
+gateway:
+  qqbot:
+    app_id: '1904159904'
+    client_secret: IVUFl25tTovnQoGV
+    dm_policy: open
+    enabled: true
+    group_policy: open
+    markdown_support: true
+mcp_servers:
+  open-websearch:
+    args:
+    - -y
+    - open-websearch@latest
+    command: npx
+    env:
+      DEFAULT_SEARCH_ENGINE: baidu
+      USE_PROXY: false
+  jin10:
+    url: https://mcp.jin10.com/mcp
+    headers:
+      Authorization: Bearer sk-U2hVwCpPHZnMk0JrYbXOZHnk4CMshQbsNRE9DMqLUGA

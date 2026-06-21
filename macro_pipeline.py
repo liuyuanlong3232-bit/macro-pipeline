@@ -1190,3 +1190,42 @@ if __name__ == "__main__":
     main()
 
 
+
+# ─── 16. Akshare 全球期货实时行情 (伦锡 LTNT) ─────────────
+def fetch_akshare_tin():
+    """从 Akshare 获取伦锡(LTNT)实时行情数据"""
+    log.info("🔩 正在抓取 Akshare 伦锡(LTNT)数据...")
+    results = []
+    
+    try:
+        import akshare as ak
+        df = ak.futures_global_spot_em()
+        
+        # 筛选伦锡 LTNT
+        tin_df = df[df['代码'] == 'LTNT'].copy()
+        
+        if tin_df.empty:
+            log.warning("⚠️ 未找到伦锡(LTNT)数据")
+            return pd.DataFrame()
+        
+        # 只保留需要的列
+        keep_cols = ['代码', '名称', '最新价', '涨跌额', '涨跌幅', '今开', '最高', '最低']
+        tin_df = tin_df[keep_cols].copy()
+        tin_df['抓取日'] = TODAY
+        
+        save_csv(tin_df, "akshare_tin")
+        log.info(f"  ✅ 伦锡(LTNT): {tin_df['最新价'].values[0]} | 涨跌幅: {tin_df['涨跌幅'].values[0]}%")
+        return tin_df
+        
+    except Exception as e:
+        log.error(f"❌ Akshare 伦锡抓取失败: {e}")
+        return pd.DataFrame()
+
+
+# ─── 注册到 ALL_SOURCES ────────────────────────────────────
+def patch_akshare():
+    global ALL_SOURCES
+    ALL_SOURCES["akshare_tin"] = ("Akshare 伦锡(LTNT)", fetch_akshare_tin)
+
+# 在文件末尾自动注册
+patch_akshare()
