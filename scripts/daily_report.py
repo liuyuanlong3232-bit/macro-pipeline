@@ -124,10 +124,10 @@ def agri_weather_detail():
 
 
 def cn_futures():
-    """获取国内期货数据"""
+    """获取国内期货数据(只取最新一天)"""
     try:
         conn = sqlite3.connect(DB); cur = conn.cursor()
-        cur.execute("SELECT name, close, change_pct, vol, unit FROM cn_futures ORDER BY name")
+        cur.execute("SELECT name, close, change_pct, vol, unit FROM cn_futures WHERE date=(SELECT MAX(date) FROM cn_futures) ORDER BY name")
         rows = cur.fetchall(); conn.close(); return rows or []
     except Exception: return []
 
