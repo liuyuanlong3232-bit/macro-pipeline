@@ -39,7 +39,7 @@ def import_csv_to_table(csv_name, table_name):
             return
         # 列名安全处理：只允许字母/数字/下划线/中文
         import re
-        safe_cols = [c for c in fieldnames if re.match(r'^[\w\u4e00-\u9fff]+$', c)]
+        safe_cols = [c for c in fieldnames if re.match(r'^[\w\u4e00-\u9fff%]+$', c)]
         if len(safe_cols) != len(fieldnames):
             print(f"[collect] ⚠️ {csv_name} 含非法列名，已过滤")
         col_str = ",".join(f'"{c}"' for c in safe_cols)
