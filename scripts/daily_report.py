@@ -30,7 +30,7 @@ sys.path.insert(0, PIPELINE_ROOT)
 
 # 导入三因子信号模块
 try:
-    from macro_signal import calc_all_signals
+    from macro_signal import calc_signals
     HAS_SIGNAL = True
 except ImportError:
     HAS_SIGNAL = False
@@ -218,7 +218,7 @@ def main():
     signals = None
     if HAS_SIGNAL:
         try:
-            signals = calc_all_signals()
+            signals = calc_signals()
         except Exception as e:
             print(f"⚠️ 三因子计算失败: {e}")
 
@@ -284,18 +284,26 @@ def main():
     else:
         L.append("  金十数据未配置")
 
-    # ═════════════ ③ 三因子模型 ═════════════
+    # ═════════════ ③ 三因子模型（双层架构）═════════════
     L.append("")
     L.append("━" * 55)
-    L.append("🧮 ③ 三因子模型（USD/Liquidity/Demand分数）")
+    L.append("🧮 ③ 三因子模型（双层架构）")
     L.append("")
     if signals:
         factors = signals["factors"]
-        L.append("  USD:       {:+.2f}  ({})".format(
-            factors["USD"], "美元强势" if factors["USD"] > 0 else "美元弱势"))
-        L.append("  Liquidity: {:+.2f}  ({})".format(
+        # USD双层显示
+        usd_final = factors["USD"]
+        usd_macro = factors.get("USD_macro", 0)
+        usd_market = factors.get("USD_market", 0)
+        
+        L.append("  USD_final:  {:+.2f}  ({})".format(
+            usd_final, "美元强势" if usd_final > 0 else "美元弱势"))
+        L.append("  ├─ Macro:   {:+.2f}  (趋势方向，权重0.6)".format(usd_macro))
+        L.append("  └─ Market:  {:+.2f}  (短期偏离，权重0.4)".format(usd_market))
+        L.append("")
+        L.append("  Liquidity:  {:+.2f}  ({})".format(
             factors["Liquidity"], "流动性充裕" if factors["Liquidity"] > 0 else "流动性紧张"))
-        L.append("  Demand:    {:+.2f}  ({})".format(
+        L.append("  Demand:     {:+.2f}  ({})".format(
             factors["Demand"], "中国需求强" if factors["Demand"] > 0 else "中国需求弱"))
         L.append("")
         L.append("  联邦基金: {}% | CPI: {} | 失业率: {}%".format(ff_v, cpi_v, unemp_v))
