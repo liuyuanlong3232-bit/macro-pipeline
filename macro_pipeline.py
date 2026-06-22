@@ -841,6 +841,7 @@ def fetch_yahoo_futures():
         "USDJPY=X": "美元/日元",
         "CNH=X": "美元/離岸人民幣",
         "DX-Y.NYB": "ICE美元指數",
+        "TIP": "TIP ETF",
         # 波動率
         "^VIX": "VIX恐慌指數",
     }

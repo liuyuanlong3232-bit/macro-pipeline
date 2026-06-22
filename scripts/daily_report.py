@@ -160,6 +160,12 @@ def main():
     tin_px, tin_chg = tin_v()
     vix_px, vix_chg, vix_dt = yv("VIX恐慌")
     dgs10_v, dgs10_d = gv("DGS10"); tips_v, tips_d = gv("DFII10")
+    
+    # TIP ETF代理TIPS
+    tip_px, tip_chg, tip_dt = yv("TIP ETF")
+    tip_tips_est = None
+    if tip_px:
+        tip_tips_est = round(1.8 + (112 - tip_px) * 0.08, 2)
     gold_cot = cv("黄金"); silver_cot = cv("白银")
     ff_v, ff_d = gv("FEDFUNDS"); cpi_v, cpi_d = gv("CPIAUCSL")
     unemp_v, unemp_d = gv("UNRATE")
@@ -239,8 +245,12 @@ def main():
     L.append("━" * 55)
     L.append("📊 ① Raw Data（偏离值）")
     L.append("")
-    L.append("  DXY: {} ({}) | 10Y: {}% | TIPS: {}%".format(
-        fmt(dxy_px), chg_s(dxy_chg), dgs10_v, tips_v))
+    # TIP代理行
+    tip_line = ""
+    if tip_px and tip_tips_est:
+        tip_line = " | TIP代理: ~{}% (TIP={})".format(tip_tips_est, fmt(tip_px))
+    L.append("  DXY: {} ({}) | 10Y: {}% | TIPS: {}%{}".format(
+        fmt(dxy_px), chg_s(dxy_chg), dgs10_v, tips_v, tip_line))
     L.append("  黄金: ${} ({}) | 白银: ${} ({})".format(
         fmt(gold_px,0), chg_s(gold_chg), fmt(silver_px,2), chg_s(silver_chg)))
     L.append("  伦锡: {} ({:+.2f}%) | WTI: ${} ({}) | Brent: ${} ({})".format(
