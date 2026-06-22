@@ -58,3 +58,12 @@ import_csv_to_table("fred_indicators.csv", "fred_indicators")
 
 # 3. Yahoo入库
 import_csv_to_table("yahoo_futures.csv", "yahoo_futures")
+
+# 4. 伦锡入库 (AKShare)
+try:
+    import macro_pipeline as mp
+    tin_df = mp.fetch_akshare_tin()
+    if tin_df is not None and not tin_df.empty:
+        print("[collect] 伦锡数据已采集")
+except Exception as e:
+    print(f"[collect] 伦锡采集失败: {e}")
