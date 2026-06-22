@@ -163,8 +163,23 @@ def main():
     gold_cot = cv("黄金"); silver_cot = cv("白银")
     ff_v, ff_d = gv("FEDFUNDS"); cpi_v, cpi_d = gv("CPIAUCSL")
     unemp_v, unemp_d = gv("UNRATE")
-    wti_px, wti_chg, wti_dt = yv("WTI原油")
-    brent_px, brent_chg, brent_dt = yv("Brent原油")
+    # WTI：优先金十，备用Yahoo
+    jin10_wti = get_quote("USOIL") if HAS_JIN10 else None
+    if jin10_wti and jin10_wti.get("close"):
+        wti_px = float(jin10_wti["close"])
+        wti_chg = float(jin10_wti.get("ups_percent", 0))
+        wti_dt = jin10_wti.get("time", "")[:10]
+    else:
+        wti_px, wti_chg, wti_dt = yv("WTI原油")
+    
+    # Brent：优先金十，备用Yahoo
+    jin10_brent = get_quote("UKOIL") if HAS_JIN10 else None
+    if jin10_brent and jin10_brent.get("close"):
+        brent_px = float(jin10_brent["close"])
+        brent_chg = float(jin10_brent.get("ups_percent", 0))
+        brent_dt = jin10_brent.get("time", "")[:10]
+    else:
+        brent_px, brent_chg, brent_dt = yv("Brent原油")
     
     # ── C区：农业+天气 ──
     corn_px, corn_chg, corn_dt = yv("玉米期貨")
