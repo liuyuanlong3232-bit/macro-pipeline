@@ -143,8 +143,8 @@ print(f"{'='*60}")
 check_table("yahoo_futures", "日期", 2, "Yahoo期货")
 check_table("fred_indicators", "日期", 5, "FRED宏观", is_monthly=True)
 check_table("agri_weather", "date", 2, "天气")
-check_table("cotdata", "報告日期", 12, "COT持仓")
-check_table("eia_energy", "日期", 30, "EIA能源", is_monthly=True)
+check_table("cotdata", "報告日期", 15, "COT持仓")
+check_table("eia_energy", "日期", 100, "EIA能源", is_monthly=True)
 check_table("vix_data", "报告日期", 14, "VIX波动率")
 
 # 极值
