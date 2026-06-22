@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 # 金十数据 MCP API
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 try:
-    from jin10_api import get_weekly_calendar, get_latest_flash
+    from jin10_api import get_weekly_calendar, get_latest_flash, get_quote
     HAS_JIN10 = True
 except ImportError:
     HAS_JIN10 = False
@@ -137,8 +137,26 @@ def main():
     """主函数：拉取数据、组装报告"""
     # ── 基础数据 ──
     dxy_px, dxy_chg, dxy_dt = yv("ICE美元")
-    gold_px, gold_chg, gold_dt = yv("黃金期貨")
-    silver_px, silver_chg, silver_dt = yv("白銀期貨")
+    
+    # 黄金：优先金十，备用Yahoo
+    jin10_gold = get_quote("XAUUSD") if HAS_JIN10 else None
+    if jin10_gold and jin10_gold.get("close"):
+        gold_px = float(jin10_gold["close"])
+        gold_chg = float(jin10_gold.get("ups_percent", 0))
+        gold_dt = jin10_gold.get("time", "")[:10]
+        print("[jin10] 黄金: {} ({:+.2f}%)".format(gold_px, gold_chg))
+    else:
+        gold_px, gold_chg, gold_dt = yv("黃金期貨")
+    
+    # 白银：优先金十，备用Yahoo
+    jin10_silver = get_quote("XAGUSD") if HAS_JIN10 else None
+    if jin10_silver and jin10_silver.get("close"):
+        silver_px = float(jin10_silver["close"])
+        silver_chg = float(jin10_silver.get("ups_percent", 0))
+        silver_dt = jin10_silver.get("time", "")[:10]
+        print("[jin10] 白银: {} ({:+.2f}%)".format(silver_px, silver_chg))
+    else:
+        silver_px, silver_chg, silver_dt = yv("白銀期貨")
     tin_px, tin_chg = tin_v()
     vix_px, vix_chg, vix_dt = yv("VIX恐慌")
     dgs10_v, dgs10_d = gv("DGS10"); tips_v, tips_d = gv("DFII10")
