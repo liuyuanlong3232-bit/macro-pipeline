@@ -86,6 +86,149 @@ def fmt(v, dp=2):
     try: return f"{float(v):,.{dp}f}"
     except Exception: return str(v)
 
+def _risk_float(v):
+    try:
+        if v in (None, "", "—", "暂无数据"):
+            return None
+        return float(str(v).replace(",", "").replace("%", ""))
+    except Exception:
+        return None
+
+def _risk_level(points):
+    if points >= 6:
+        return "🔴 危机"
+    if points >= 4:
+        return "🟠 警戒"
+    if points >= 2:
+        return "🟡 注意"
+    return "🟢 正常"
+
+def _risk_value_line(name, value, date="", suffix=""):
+    if value in (None, "", "—"):
+        return f"  · {name}: 暂无数据"
+    date_part = f" ({str(date)[:10]})" if date and date != "—" else ""
+    return f"  · {name}: {value}{suffix}{date_part}"
+
+def _append_financial_risk_monitor(L, dxy_px=None, dxy_dt="", tips_v="—", tips_d="", dgs10_v="—", dgs10_d=""):
+    """Append-only financial risk monitor. Does not feed any existing score model."""
+    try:
+        dgs2_v, dgs2_d = gv("DGS2")
+        stlfsi_v, stlfsi_d = gv("STLFSI4")
+        hy_oas_v, hy_oas_d = gv("BAMLH0A0HYM2")
+        default_v, default_d = gv("DRBLACBS")
+        cp_v, cp_d = gv("CPF3M")
+        loan_v, loan_d = gv("TOTLL")
+        credit_growth_v, credit_growth_d = gv("BUSLOANS")
+    except Exception:
+        dgs2_v = dgs2_d = stlfsi_v = stlfsi_d = hy_oas_v = hy_oas_d = "—"
+        default_v = default_d = cp_v = cp_d = loan_v = loan_d = credit_growth_v = credit_growth_d = "—"
+
+    kbe_px, kbe_chg, kbe_dt = yv("KBE")
+    kre_px, kre_chg, kre_dt = yv("KRE")
+    hyg_px, hyg_chg, hyg_dt = yv("HYG")
+
+    dxy_num = _risk_float(dxy_px)
+    tips_num = _risk_float(tips_v)
+    dgs2_num = _risk_float(dgs2_v)
+    dgs10_num = _risk_float(dgs10_v)
+    stlfsi_num = _risk_float(stlfsi_v)
+    hy_oas_num = _risk_float(hy_oas_v)
+    kbe_chg_num = _risk_float(kbe_chg)
+    kre_chg_num = _risk_float(kre_chg)
+    hyg_chg_num = _risk_float(hyg_chg)
+    curve_num = None
+    if dgs10_num is not None and dgs2_num is not None:
+        curve_num = dgs10_num - dgs2_num
+
+    us_points = 0
+    if dxy_num is not None and dxy_num >= 108: us_points += 1
+    if tips_num is not None and tips_num >= 2.5: us_points += 1
+    if dgs2_num is not None and dgs2_num >= 5.0: us_points += 1
+    if dgs10_num is not None and dgs10_num >= 5.0: us_points += 1
+    if curve_num is not None and curve_num <= -0.75: us_points += 1
+    if stlfsi_num is not None and stlfsi_num >= 1.0: us_points += 2
+    if hy_oas_num is not None and hy_oas_num >= 5.0: us_points += 2
+    if hyg_chg_num is not None and hyg_chg_num <= -2.0: us_points += 1
+    if kbe_chg_num is not None and kbe_chg_num <= -3.0: us_points += 1
+    if kre_chg_num is not None and kre_chg_num <= -3.0: us_points += 1
+    us_level = _risk_level(us_points)
+
+    credit_points = 0
+    default_num = _risk_float(default_v)
+    cp_num = _risk_float(cp_v)
+    loan_num = _risk_float(loan_v)
+    credit_growth_num = _risk_float(credit_growth_v)
+    if default_num is not None and default_num >= 4.0: credit_points += 2
+    if cp_num is not None and cp_num >= 5.5: credit_points += 1
+    if loan_num is not None and loan_num < 0: credit_points += 1
+    if credit_growth_num is not None and credit_growth_num < 0: credit_points += 1
+    credit_risk = "高" if credit_points >= 3 else "中" if credit_points >= 1 else "低"
+
+    global_risk = "正常"
+    if dxy_num is not None and dxy_num >= 108:
+        global_risk = "偏紧"
+    if dxy_num is not None and dxy_num >= 112:
+        global_risk = "紧张"
+
+    total_points = us_points + credit_points
+    if global_risk == "偏紧":
+        total_points += 1
+    elif global_risk == "紧张":
+        total_points += 2
+    overall = _risk_level(total_points)
+
+    if "🔴" in overall:
+        summary = "金融压力已进入高风险区间，需要重点关注信用利差、银行股和美元流动性共振。"
+    elif "🟠" in overall:
+        summary = "信用风险开始累积，建议提高风险意识。"
+    elif "🟡" in overall:
+        summary = "金融条件略有收紧，但暂未出现系统性金融危机特征。"
+    else:
+        summary = "当前尚未出现系统性金融危机特征，信用环境保持稳定。"
+
+    L.append("")
+    L.append("=" * 25)
+    L.append("Financial Risk Monitor")
+    L.append("金融风险监测")
+    L.append("=" * 6)
+    L.append("")
+    L.append("该模块用于监测系统性金融风险，不参与现有黄金、白银、锡、原油评分。")
+    L.append("")
+    L.append("一、美国金融系统（每日）")
+    L.append(f"风险等级：{us_level}")
+    L.append("一句话说明：美元、实际利率、收益率曲线、金融压力、信用利差与银行ETF共同监测。")
+    L.append(_risk_value_line("DXY", fmt(dxy_px) if dxy_px not in (None, "", "—") else "暂无数据", dxy_dt))
+    L.append(_risk_value_line("TIP实际利率代理", tips_v if tips_v != "—" else "暂无数据", tips_d, "%"))
+    L.append(_risk_value_line("2Y Treasury", dgs2_v if dgs2_v != "—" else "暂无数据", dgs2_d, "%"))
+    L.append(_risk_value_line("10Y Treasury", dgs10_v if dgs10_v != "—" else "暂无数据", dgs10_d, "%"))
+    curve_text = f"{curve_num:.2f}%" if curve_num is not None else "暂无数据"
+    L.append(_risk_value_line("收益率曲线（10Y-2Y）", curve_text))
+    L.append(_risk_value_line("STL Financial Stress Index", stlfsi_v if stlfsi_v != "—" else "暂无数据", stlfsi_d))
+    hy_proxy = hy_oas_v if hy_oas_v != "—" else (f"HYG {chg_s(hyg_chg)}" if hyg_px is not None else "暂无数据")
+    L.append(_risk_value_line("信用利差（HY OAS/HYG代理）", hy_proxy, hy_oas_d if hy_oas_v != "—" else hyg_dt, "%" if hy_oas_v != "—" else ""))
+    bank_parts = []
+    if kbe_px is not None: bank_parts.append(f"KBE {fmt(kbe_px)} ({chg_s(kbe_chg)})")
+    if kre_px is not None: bank_parts.append(f"KRE {fmt(kre_px)} ({chg_s(kre_chg)})")
+    L.append(_risk_value_line("银行ETF（KBE/KRE）", " / ".join(bank_parts) if bank_parts else "暂无数据", kbe_dt or kre_dt))
+    L.append("")
+    L.append("二、信用风险（每周）")
+    L.append(f"信用风险：{credit_risk}")
+    L.append(_risk_value_line("企业债违约率", default_v if default_v != "—" else "暂无数据", default_d, "%"))
+    L.append(_risk_value_line("Commercial Paper", cp_v if cp_v != "—" else "暂无数据", cp_d, "%"))
+    L.append(_risk_value_line("银行贷款增速", loan_v if loan_v != "—" else "暂无数据", loan_d))
+    L.append(_risk_value_line("信贷扩张速度", credit_growth_v if credit_growth_v != "—" else "暂无数据", credit_growth_d))
+    L.append("")
+    L.append("三、全球风险（每周）")
+    L.append(f"全球风险：{global_risk}")
+    L.append("  · BIS Credit Gap: 暂无数据")
+    L.append("  · 全球美元流动性: 暂无数据")
+    L.append("  · 全球外汇储备变化: 暂无数据")
+    L.append("")
+    L.append("四、综合判断")
+    L.append(f"金融风险：{overall}")
+    L.append(summary)
+    L.append("数据源: FRED, BIS, Yahoo Finance, Treasury, TIP代理；缺失数据以“暂无数据”显示。")
+
 def cn_weather():
     """获取中国城市天气"""
     try:
@@ -484,6 +627,8 @@ def main():
     L.append("  数据: FRED, Yahoo, CFTC, Open-Meteo, EIA, 金十数据, Tushare, 和风天气")
     L.append("  模型: 三因子 USD/Liquidity/Demand → Gold/Silver/Tin/Oil + 农业天气")
     L.append("  生成: " + NOW.strftime("%Y-%m-%d %H:%M") + " CST · 不构成投资建议")
+
+    _append_financial_risk_monitor(L, dxy_px, dxy_dt, tips_v, tips_d, dgs10_v, dgs10_d)
 
     report = "\n".join(L)
 
