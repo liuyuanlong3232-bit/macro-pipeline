@@ -14,6 +14,38 @@ from dotenv import load_dotenv
 # ═══════ 全局常量 ═══════
 DATA_DIR = Path.home() / "hermes-macro-data"
 TODAY = datetime.now().strftime("%Y-%m-%d")
+DRY_RUN_DATA_DIR_ENV = "HERMES_DRY_RUN_DATA_DIR"
+
+
+def _safe_resolved(path):
+    return str(Path(path).expanduser().resolve(strict=False)).lower()
+
+
+def _dry_run_data_dir():
+    raw = os.getenv(DRY_RUN_DATA_DIR_ENV)
+    if not raw:
+        raise RuntimeError(
+            f"HERMES_DRY_RUN=1 requires {DRY_RUN_DATA_DIR_ENV}; refusing to write default DATA_DIR"
+        )
+    sandbox_dir = Path(raw).expanduser()
+    if _safe_resolved(sandbox_dir) == _safe_resolved(DATA_DIR):
+        raise RuntimeError(
+            f"{DRY_RUN_DATA_DIR_ENV} must not equal production DATA_DIR: {DATA_DIR}"
+        )
+    return sandbox_dir
+
+
+def _dry_run_mock(name):
+    if os.getenv("HERMES_DRY_RUN") != "1":
+        return None
+    try:
+        from tests import mock_data
+    except ImportError as exc:
+        raise RuntimeError(
+            "HERMES_DRY_RUN=1 requires tests.mock_data; refusing to read production data"
+        ) from exc
+    mock_data.ensure_mock_database(_dry_run_data_dir(), TODAY)
+    return mock_data.load_csv(name, TODAY)
 
 
 # ═══════ 环境加载 ═══════
@@ -36,6 +68,9 @@ def load_env():
 
 def load_csv(name):
     """加载CSV数据，优先TODAY目录，回退到最近7天，最后回退到SQLite"""
+    mock = _dry_run_mock(name)
+    if mock is not None:
+        return mock
     # 1. 优先今日CSV
     p = DATA_DIR / "csv" / TODAY / f"{name}.csv"
     if p.exists():

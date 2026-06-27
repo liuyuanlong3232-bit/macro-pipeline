@@ -16,12 +16,25 @@ load_env()
 
 CHART_DIR = DATA_DIR / "charts"
 
+def _email_block_reason():
+    """Return the runtime safety flag that blocks email sending, if any."""
+    if os.getenv("HERMES_NO_EMAIL") == "1":
+        return "HERMES_NO_EMAIL=1"
+    if os.getenv("SAFE_MODE") == "1":
+        return "SAFE_MODE=1"
+    return None
+
 def img_to_base64(path):
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
 
 def send_report(filepath, chart_type=""):
     """发送Markdown报告到邮箱，含图表"""
+    block_reason = _email_block_reason()
+    if block_reason:
+        print(f"Email send blocked by runtime safety flag: {block_reason}")
+        return False
+
     if not os.path.exists(filepath):
         print(f"❌ 报告不存在: {filepath}")
         return False
@@ -213,6 +226,11 @@ def send_report(filepath, chart_type=""):
 
 def send_alert(subject, message):
     """发送纯文本预警"""
+    block_reason = _email_block_reason()
+    if block_reason:
+        print(f"Email alert blocked by runtime safety flag: {block_reason}")
+        return False
+
     from_addr = os.getenv("EMAIL_USER")
     to_addr = os.getenv("EMAIL_TO")
     password = os.getenv("EMAIL_PASS")
@@ -238,6 +256,7 @@ def send_alert(subject, message):
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         ct = sys.argv[2] if len(sys.argv) > 2 else ""
-        send_report(sys.argv[1], ct)
+        if not send_report(sys.argv[1], ct):
+            sys.exit(1)
     else:
         print("用法: python3 send_email.py <报告路径> [chart_type]")

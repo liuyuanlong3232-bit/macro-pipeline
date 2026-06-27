@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """统一报告生成+发送入口"""
-import sys, subprocess
+import os, sys, subprocess
 from pathlib import Path
 from datetime import datetime
 
@@ -49,7 +49,20 @@ SCRIPTS = {
     },
 }
 
+
+def _runtime_block_reason():
+    if os.getenv("HERMES_DISABLE_RUN") == "1":
+        return "HERMES_DISABLE_RUN=1"
+    return None
+
+
 def run(name):
+    block_reason = _runtime_block_reason()
+    if block_reason:
+        print(f"Execution blocked by runtime safety flag: {block_reason}")
+        return False
+
+    dry = os.getenv("HERMES_DRY_RUN") == "1"
     cfg = SCRIPTS.get(name)
     if not cfg:
         print(f"❌ 未知报告类型: {name}")
@@ -76,6 +89,10 @@ def run(name):
     if not report_path.exists():
         print(f"  ❌ 报告文件不存在: {report_path}")
         return False
+
+    if dry:
+        print("  HERMES_DRY_RUN=1: report generated, email send skipped")
+        return True
 
     from send_email import send_report
     return send_report(str(report_path), cfg["chart_type"])

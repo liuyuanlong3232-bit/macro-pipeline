@@ -39,13 +39,20 @@ except ImportError:
 NOW = datetime.now()
 TODAY = NOW.strftime("%Y-%m-%d")
 DB = str(Path.home() / "hermes-macro-data" / "hermes.db")
+DATA_FRESHNESS = {}
 
 # ═══════ 工具函数 ═══════
 def db_one(sql, params=None):
+    source = sql.split(" FROM ", 1)[-1].split()[0]
     try:
         conn = sqlite3.connect(DB); cur = conn.cursor()
-        cur.execute(sql, params or ()); r = cur.fetchone(); conn.close(); return r
-    except Exception: return None
+        cur.execute(sql, params or ()); r = cur.fetchone(); conn.close()
+        if r is None:
+            print(f"[data-read] source={source} status=MISSING fallback=caller-default")
+        return r
+    except Exception as e:
+        print(f"[data-read] source={source} status=FAILED fallback=caller-default error={type(e).__name__}")
+        return None
 
 def gv(series_id):
     r = db_one('SELECT "數值", "日期" FROM fred_indicators WHERE "系列ID"=? ORDER BY "日期" DESC LIMIT 1', (series_id,))
@@ -55,6 +62,46 @@ def yv(kw):
     r = db_one('SELECT "最新價", "日漲跌幅%", "日期" FROM yahoo_futures WHERE "品種" LIKE ? ORDER BY "日期" DESC LIMIT 1', (f"%{kw}%",))
     if r and r[0]: return (float(r[0]), str(r[1] if r[1] else "0"), str(r[2]) if r[2] else "")
     return (None, "", "")
+
+def _record_freshness(name, value, source_time="", fetched_time="", fallback=False):
+    last_updated_time = str(fetched_time or source_time or "")
+    if value in (None, "", "—"):
+        freshness_status = "MISSING"
+    elif fallback or not last_updated_time or last_updated_time[:10] != TODAY:
+        freshness_status = "STALE"
+    else:
+        freshness_status = "OK"
+    DATA_FRESHNESS[name] = {
+        "last_updated_time": last_updated_time,
+        "freshness_status": freshness_status,
+    }
+
+def _append_freshness_table(lines):
+    if not DATA_FRESHNESS:
+        return
+    lines.append("")
+    lines.append("📡 数据新鲜度")
+    lines.append("")
+    lines.append("| 指标 | freshness_status | last_updated_time |")
+    lines.append("|------|------------------|-------------------|")
+    for name in ("DXY", "GOLD", "SILVER", "TIP"):
+        info = DATA_FRESHNESS.get(name, {})
+        lines.append(
+            f"| {name} | {info.get('freshness_status', 'MISSING')} | {info.get('last_updated_time', '') or '—'} |"
+        )
+
+
+def gv_meta(series_id):
+    r = db_one('SELECT "數值", "日期", "抓取日" FROM fred_indicators WHERE "系列ID"=? ORDER BY "日期" DESC LIMIT 1', (series_id,))
+    if r:
+        return (str(r[0]), str(r[1] or ""), str(r[2] or ""))
+    return ("—", "", "")
+
+def yv_meta(kw):
+    r = db_one('SELECT "最新價", "日漲跌幅%", "日期", "抓取日" FROM yahoo_futures WHERE "品種" LIKE ? ORDER BY "日期" DESC LIMIT 1', (f"%{kw}%",))
+    if r and r[0]:
+        return (float(r[0]), str(r[1] if r[1] else "0"), str(r[2] or ""), str(r[3] or ""))
+    return (None, "", "", "")
 
 def cv(kw):
     r = db_one('SELECT "COT Index(26W)" FROM cotdata WHERE "品種" LIKE ? LIMIT 1', (f"%{kw}%",))
@@ -279,7 +326,8 @@ def cn_futures():
 def main():
     """主函数：拉取数据、组装报告"""
     # ── 基础数据 ──
-    dxy_px, dxy_chg, dxy_dt = yv("ICE美元")
+    dxy_px, dxy_chg, dxy_dt, dxy_fetched = yv_meta("ICE美元")
+    _record_freshness("DXY", dxy_px, dxy_dt, dxy_fetched)
     
     # 黄金：优先金十，备用Yahoo
     jin10_gold = get_quote("XAUUSD") if HAS_JIN10 else None
@@ -287,9 +335,11 @@ def main():
         gold_px = float(jin10_gold["close"])
         gold_chg = float(jin10_gold.get("ups_percent", 0))
         gold_dt = jin10_gold.get("time", "")[:10]
+        _record_freshness("GOLD", gold_px, gold_dt)
         print("[jin10] 黄金: {} ({:+.2f}%)".format(gold_px, gold_chg))
     else:
-        gold_px, gold_chg, gold_dt = yv("黃金期貨")
+        gold_px, gold_chg, gold_dt, gold_fetched = yv_meta("黃金期貨")
+        _record_freshness("GOLD", gold_px, gold_dt, gold_fetched, fallback=True)
     
     # 白银：优先金十，备用Yahoo
     jin10_silver = get_quote("XAGUSD") if HAS_JIN10 else None
@@ -297,15 +347,21 @@ def main():
         silver_px = float(jin10_silver["close"])
         silver_chg = float(jin10_silver.get("ups_percent", 0))
         silver_dt = jin10_silver.get("time", "")[:10]
+        _record_freshness("SILVER", silver_px, silver_dt)
         print("[jin10] 白银: {} ({:+.2f}%)".format(silver_px, silver_chg))
     else:
-        silver_px, silver_chg, silver_dt = yv("白銀期貨")
+        silver_px, silver_chg, silver_dt, silver_fetched = yv_meta("白銀期貨")
+        _record_freshness("SILVER", silver_px, silver_dt, silver_fetched, fallback=True)
     tin_px, tin_chg = tin_v()
     vix_px, vix_chg, vix_dt = yv("VIX恐慌")
-    dgs10_v, dgs10_d = gv("DGS10"); tips_v, tips_d = gv("DFII10")
+    dgs10_v, dgs10_d = gv("DGS10"); tips_v, tips_d, tips_fetched = gv_meta("DFII10")
     
     # TIP ETF代理TIPS
-    tip_px, tip_chg, tip_dt = yv("TIP ETF")
+    tip_px, tip_chg, tip_dt, tip_fetched = yv_meta("TIP ETF")
+    if tips_v != "—":
+        _record_freshness("TIP", tips_v, tips_d, tips_fetched)
+    else:
+        _record_freshness("TIP", tip_px, tip_dt, tip_fetched, fallback=tip_px is not None)
     tip_tips_est = None
     if tip_px:
         tip_tips_est = round(1.8 + (112 - tip_px) * 0.08, 2)
@@ -622,6 +678,7 @@ def main():
     ]
     for name, val, dt in rows:
         L.append(f"| {name} | {val} | {dt} |")
+    _append_freshness_table(L)
 
     L.append("")
     L.append("  数据: FRED, Yahoo, CFTC, Open-Meteo, EIA, 金十数据, Tushare, 和风天气")
