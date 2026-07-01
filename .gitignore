@@ -19,3 +19,10 @@ sessions/
 cache/
 lsp/
 bin/
+
+# Runtime generated reminders / quality reports
+shared/reminders/quality_report_*.txt
+shared/reminders/weekly_*.txt
+shared/reminders/monthly_*.txt
+shared/reminders/weather_reminder.txt
+!shared/reminders/.gitkeep
